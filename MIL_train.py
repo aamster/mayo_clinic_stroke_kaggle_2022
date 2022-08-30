@@ -1,122 +1,150 @@
-import sys
 import os
+
+import mlflow
 import numpy as np
 import argparse
-import random
-import openslide
-import PIL.Image as Image
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
-import torch.utils.data as data
-import torchvision.transforms as transforms
 import torchvision.models as models
+from torch.utils.data import DataLoader
 
-parser = argparse.ArgumentParser(description='MIL-nature-medicine-2019 tile classifier training script')
-parser.add_argument('--train_lib', type=str, default='', help='path to train MIL library binary')
-parser.add_argument('--val_lib', type=str, default='', help='path to validation MIL library binary. If present.')
-parser.add_argument('--output', type=str, default='.', help='name of output file')
-parser.add_argument('--batch_size', type=int, default=512, help='mini-batch size (default: 512)')
-parser.add_argument('--nepochs', type=int, default=100, help='number of epochs')
-parser.add_argument('--workers', default=4, type=int, help='number of data loading workers (default: 4)')
-parser.add_argument('--test_every', default=10, type=int, help='test on val every (default: 10)')
-parser.add_argument('--weights', default=0.5, type=float, help='unbalanced positive class weight (default: 0.5, balanced classes)')
-parser.add_argument('--k', default=1, type=int, help='top k tiles are assumed to be of the same class as the slide (default: 1, standard MIL)')
+from mil_dataset import get_dataloader
 
-best_acc = 0
+parser = argparse.ArgumentParser(
+    description='MIL-nature-medicine-2019 tile classifier training script')
+parser.add_argument('--train_dataset_path', type=str, default='',
+                    help='path to train dataset saved with torch.save')
+parser.add_argument('--val_dataset_path', type=str, default='',
+                    help='path to val dataset saved with torch.save')
+parser.add_argument('--output', type=str, default='.',
+                    help='name of output file')
+parser.add_argument('--batch_size', type=int, default=512,
+                    help='mini-batch size (default: 512)')
+parser.add_argument('--nepochs', type=int, default=100,
+                    help='number of epochs')
+parser.add_argument('--workers', default=4, type=int,
+                    help='number of data loading workers (default: 4)')
+parser.add_argument('--test_every', default=10, type=int,
+                    help='test on val every (default: 10)')
+parser.add_argument('--pos_loss_weight', default=0.5, type=float,
+                    help='unbalanced positive class weight (default: 0.5, '
+                         'balanced classes)')
+parser.add_argument('--k', default=1, type=int,
+                    help='top k tiles are assumed to be of the same class as '
+                         'the slide (default: 1, standard MIL)')
+parser.add_argument('--mlflow_tracking_uri', required=True)
+parser.add_argument('--learning_rate', default=1e-4, type=float)
+parser.add_argument('--weight_decay', default=1e-4, type=float)
+
+
 def main():
-    global args, best_acc
     args = parser.parse_args()
 
-    #cnn
+    # cnn
     model = models.resnet34(True)
     model.fc = nn.Linear(model.fc.in_features, 2)
     model.cuda()
 
-    if args.weights==0.5:
+    if args.weights == 0.5:
         criterion = nn.CrossEntropyLoss().cuda()
     else:
-        w = torch.Tensor([1-args.weights,args.weights])
+        w = torch.Tensor([1-args.pos_loss_weight, args.pos_loss_weight])
         criterion = nn.CrossEntropyLoss(w).cuda()
-    optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=args.learing_rate,
+                           weight_decay=args.weight_decay)
 
     cudnn.benchmark = True
 
-    #normalization
-    normalize = transforms.Normalize(mean=[0.5,0.5,0.5],std=[0.1,0.1,0.1])
-    trans = transforms.Compose([transforms.ToTensor(), normalize])
+    train_loader = get_dataloader(dataset_path=args.dataset_path,
+                                  batch_size=args.batch_size,
+                                  n_workers=args.workers,
+                                  mode='train')
+    if args.val_dataset_path:
+        val_loader = get_dataloader(dataset_path=args.val_dataset_path,
+                                    batch_size=args.batch_size,
+                                    n_workers=args.workers,
+                                    mode='inference')
+    else:
+        val_loader = None
 
-    #load data
-    train_dset = MILdataset(args.train_lib, trans)
-    train_loader = torch.utils.data.DataLoader(
-        train_dset,
-        batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=False)
-    if args.val_lib:
-        val_dset = MILdataset(args.val_lib, trans)
-        val_loader = torch.utils.data.DataLoader(
-            val_dset,
-            batch_size=args.batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=False)
+    mlflow.set_tracking_uri(args.mlflow_tracking_uri)
 
-    #open output file
-    fconv = open(os.path.join(args.output,'convergence.csv'), 'w')
-    fconv.write('epoch,metric,value\n')
-    fconv.close()
+    train_slide_idxs = np.array(
+        [x['slide'] for x in train_loader.dataset.tiles])
+    val_slide_idxs = np.array([x['slide'] for x in val_loader.dataset.tiles])
 
-    #loop throuh epochs
+    best_acc = 0
+
+    # loop through epochs
     for epoch in range(args.nepochs):
-        train_dset.setmode(1)
-        probs = inference(epoch, train_loader, model)
-        topk = group_argtopk(np.array(train_dset.slideIDX), probs, args.k)
-        train_dset.maketraindata(topk)
-        train_dset.shuffletraindata()
-        train_dset.setmode(2)
-        loss = train(epoch, train_loader, model, criterion, optimizer)
-        print('Training\tEpoch: [{}/{}]\tLoss: {}'.format(epoch+1, args.nepochs, loss))
-        fconv = open(os.path.join(args.output, 'convergence.csv'), 'a')
-        fconv.write('{},loss,{}\n'.format(epoch+1,loss))
-        fconv.close()
+        probs = tile_inference(run=epoch, loader=val_loader, model=model,
+                               batch_size=args.batch_size,
+                               n_epochs=args.nepochs)
+        topk = get_topk_tiles(
+            slide_indices=train_slide_idxs,
+            tile_preds=probs,
+            k=args.k)
+        train_loader.dataset.get_top_k_tiles(top_k_indices=topk)
+        loss = train(train_loader, model, criterion, optimizer)
+        print(f'Training\tEpoch: [{epoch+1}/{args.nepochs}]\tLoss: {loss}')
+        mlflow.log_metric(key='train_loss', value=loss, step=epoch)
 
-        #Validation
-        if args.val_lib and (epoch+1) % args.test_every == 0:
-            val_dset.setmode(1)
-            probs = inference(epoch, val_loader, model)
-            maxs = group_max(np.array(val_dset.slideIDX), probs, len(val_dset.targets))
-            pred = [1 if x >= 0.5 else 0 for x in maxs]
-            err,fpr,fnr = calc_err(pred, val_dset.targets)
-            print('Validation\tEpoch: [{}/{}]\tError: {}\tFPR: {}\tFNR: {}'.format(epoch+1, args.nepochs, err, fpr, fnr))
-            fconv = open(os.path.join(args.output, 'convergence.csv'), 'a')
-            fconv.write('{},error,{}\n'.format(epoch+1, err))
-            fconv.write('{},fpr,{}\n'.format(epoch+1, fpr))
-            fconv.write('{},fnr,{}\n'.format(epoch+1, fnr))
-            fconv.close()
-            #Save best model
-            err = (fpr+fnr)/2.
+        # Validation
+        if val_loader is not None and (epoch + 1) % args.test_every == 0:
+            probs = tile_inference(run=epoch, loader=val_loader, model=model,
+                                   batch_size=args.batch_size,
+                                   n_epochs=args.nepochs)
+            pred = slide_inference(
+                slide_indices=val_slide_idxs, tile_preds=probs)
+            fpr, fnr, loss = calc_err(
+                pred=pred,
+                probs=probs,
+                true=[x['target'] for x in val_loader.dataset.slides],
+                criterion=criterion
+            )
+            print(f'Validation\tEpoch: [{epoch+1}/{args.nepochs}]\t'
+                  f'FPR: {fpr}\t'
+                  f'FNR: {fnr}\t'
+                  f'Loss: {loss}')
+
+            mlflow.log_metric(key='val_loss', value=loss, step=epoch)
+            mlflow.log_metric(key='val_fpr', value=fpr, step=epoch)
+            mlflow.log_metric(key='val_fnr', value=fnr, step=epoch)
+
+            # Save best model
+            err = (fpr + fnr) / 2.
             if 1-err >= best_acc:
                 best_acc = 1-err
                 obj = {
                     'epoch': epoch+1,
                     'state_dict': model.state_dict(),
                     'best_acc': best_acc,
-                    'optimizer' : optimizer.state_dict()
+                    'optimizer': optimizer.state_dict()
                 }
-                torch.save(obj, os.path.join(args.output,'checkpoint_best.pth'))
+                torch.save(obj, os.path.join(args.output,
+                                             'checkpoint_best.pth'))
 
-def inference(run, loader, model):
+
+def tile_inference(run: int, loader: DataLoader, model: nn.Module,
+                   batch_size: int, n_epochs: int):
     model.eval()
     probs = torch.FloatTensor(len(loader.dataset))
     with torch.no_grad():
         for i, input in enumerate(loader):
-            print('Inference\tEpoch: [{}/{}]\tBatch: [{}/{}]'.format(run+1, args.nepochs, i+1, len(loader)))
+            print(f'Inference\tEpoch: [{run + 1}/{n_epochs}]\t'
+                  f'Batch: [{i + 1}/{len(loader)}]')
             input = input.cuda()
             output = F.softmax(model(input), dim=1)
-            probs[i*args.batch_size:i*args.batch_size+input.size(0)] = output.detach()[:,1].clone()
+            start_idx = i * batch_size
+            end_idx = i * batch_size + input.size(0)
+            probs[start_idx:end_idx] = output.detach()[:, 1].clone()
     return probs.cpu().numpy()
 
-def train(run, loader, model, criterion, optimizer):
+
+def train(loader, model, criterion, optimizer):
     model.train()
     running_loss = 0.
     for i, (input, target) in enumerate(loader):
@@ -130,92 +158,50 @@ def train(run, loader, model, criterion, optimizer):
         running_loss += loss.item()*input.size(0)
     return running_loss/len(loader.dataset)
 
-def calc_err(pred,real):
-    pred = np.array(pred)
-    real = np.array(real)
-    neq = np.not_equal(pred, real)
-    err = float(neq.sum())/pred.shape[0]
-    fpr = float(np.logical_and(pred==1,neq).sum())/(real==0).sum()
-    fnr = float(np.logical_and(pred==0,neq).sum())/(real==1).sum()
-    return err, fpr, fnr
 
-def group_argtopk(groups, data,k=1):
-    order = np.lexsort((data, groups))
-    groups = groups[order]
-    data = data[order]
-    index = np.empty(len(groups), 'bool')
+def calc_err(pred, probs, true, criterion: nn.CrossEntropyLoss):
+    pred = np.array(pred)
+    probs = np.array(probs)
+    true = np.array(true)
+
+    tp = (pred == 1 & true == 1).sum()
+    fp = (pred == 1 & true == 0).sum()
+    fn = (pred == 0 & true == 1).sum()
+    tn = (pred == 0 & true == 0).sum()
+    fpr = fp / (fp + tn)
+    fnr = fn / (tp + fn)
+
+    loss = criterion(probs, true)
+    return fpr, fnr, loss
+
+
+def get_topk_tiles(slide_indices, tile_preds, k=1):
+    """Gets top k tiles from each slide by probability of positive class"""
+    order = np.lexsort((tile_preds, slide_indices))
+    slide_indices = slide_indices[order]
+    index = np.empty(len(slide_indices), 'bool')
     index[-k:] = True
-    index[:-k] = groups[k:] != groups[:-k]
+    index[:-k] = slide_indices[k:] != slide_indices[:-k]
     return list(order[index])
 
-def group_max(groups, data, nmax):
-    out = np.empty(nmax)
-    out[:] = np.nan
-    order = np.lexsort((data, groups))
-    groups = groups[order]
-    data = data[order]
-    index = np.empty(len(groups), 'bool')
-    index[-1] = True
-    index[:-1] = groups[1:] != groups[:-1]
-    out[groups[index]] = data[index]
-    return out
 
-class MILdataset(data.Dataset):
-    def __init__(self, libraryfile='', transform=None):
-        lib = torch.load(libraryfile)
-        slides = []
-        for i,name in enumerate(lib['slides']):
-            sys.stdout.write('Opening SVS headers: [{}/{}]\r'.format(i+1, len(lib['slides'])))
-            sys.stdout.flush()
-            slides.append(openslide.OpenSlide(name))
-        print('')
-        #Flatten grid
-        grid = []
-        slideIDX = []
-        for i,g in enumerate(lib['grid']):
-            grid.extend(g)
-            slideIDX.extend([i]*len(g))
+def slide_inference(
+        slide_indices,
+        tile_preds,
+        classification_threshold=0.5
+) -> np.ndarray:
+    """Gets classifications for each slide by treating tile with max
+    probability as the slide-level prediction"""
+    n_slides = len(np.unique(slide_indices))
+    slide_probs = np.zeros(n_slides)
+    argmax_tiles = get_topk_tiles(
+        slide_indices=slide_indices, tile_preds=tile_preds)
+    slide_probs[slide_indices[argmax_tiles]] = tile_preds[argmax_tiles]
+    pred = [x >= classification_threshold for x in slide_probs]
+    pred = np.array(pred).astype(int)
 
-        print('Number of tiles: {}'.format(len(grid)))
-        self.slidenames = lib['slides']
-        self.slides = slides
-        self.targets = lib['targets']
-        self.grid = grid
-        self.slideIDX = slideIDX
-        self.transform = transform
-        self.mode = None
-        self.mult = lib['mult']
-        self.size = int(np.round(224*lib['mult']))
-        self.level = lib['level']
-    def setmode(self,mode):
-        self.mode = mode
-    def maketraindata(self, idxs):
-        self.t_data = [(self.slideIDX[x],self.grid[x],self.targets[self.slideIDX[x]]) for x in idxs]
-    def shuffletraindata(self):
-        self.t_data = random.sample(self.t_data, len(self.t_data))
-    def __getitem__(self,index):
-        if self.mode == 1:
-            slideIDX = self.slideIDX[index]
-            coord = self.grid[index]
-            img = self.slides[slideIDX].read_region(coord,self.level,(self.size,self.size)).convert('RGB')
-            if self.mult != 1:
-                img = img.resize((224,224),Image.BILINEAR)
-            if self.transform is not None:
-                img = self.transform(img)
-            return img
-        elif self.mode == 2:
-            slideIDX, coord, target = self.t_data[index]
-            img = self.slides[slideIDX].read_region(coord,self.level,(self.size,self.size)).convert('RGB')
-            if self.mult != 1:
-                img = img.resize((224,224),Image.BILINEAR)
-            if self.transform is not None:
-                img = self.transform(img)
-            return img, target
-    def __len__(self):
-        if self.mode == 1:
-            return len(self.grid)
-        elif self.mode == 2:
-            return len(self.t_data)
+    return pred
+
 
 if __name__ == '__main__':
     main()
