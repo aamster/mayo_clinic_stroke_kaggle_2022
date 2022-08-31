@@ -76,7 +76,7 @@ def main():
         [x['slide'] for x in train_loader.dataset.tiles])
     val_slide_idxs = np.array([x['slide'] for x in val_loader.dataset.tiles])
 
-    best_acc = 0
+    best_metric = float('inf')
 
     # loop through epochs
     for epoch in range(args.nepochs):
@@ -88,9 +88,9 @@ def main():
             tile_preds=probs,
             k=args.k)
         train_loader.dataset.get_top_k_tiles(top_k_indices=topk)
-        loss = train(train_loader, model, criterion, optimizer)
-        print(f'Training\tEpoch: [{epoch+1}/{args.nepochs}]\tLoss: {loss}')
-        mlflow.log_metric(key='train_loss', value=loss, step=epoch)
+        train_loss = train(train_loader, model, criterion, optimizer)
+        print(f'Training\tEpoch: [{epoch+1}/{args.nepochs}]\tLoss: {train_loss}')
+        mlflow.log_metric(key='train_loss', value=train_loss, step=epoch)
 
         # Validation
         if val_loader is not None and (epoch + 1) % args.test_every == 0:
@@ -99,29 +99,34 @@ def main():
                                    n_epochs=args.nepochs)
             pred = slide_inference(
                 slide_indices=val_slide_idxs, tile_preds=probs)
-            fpr, fnr, loss = calc_err(
+            fpr, fnr, balanced_loss, imbalanced_loss = calc_err(
                 pred=pred,
                 probs=probs,
                 true=[x['target'] for x in val_loader.dataset.slides],
-                criterion=criterion
+                pos_loss_weight=args.pos_loss_weight
             )
             print(f'Validation\tEpoch: [{epoch+1}/{args.nepochs}]\t'
                   f'FPR: {fpr}\t'
                   f'FNR: {fnr}\t'
-                  f'Loss: {loss}')
+                  f'Balanced Loss: {balanced_loss}\t'
+                  f'Imbalanced Loss: {imbalanced_loss}')
 
-            mlflow.log_metric(key='val_loss', value=loss, step=epoch)
+            mlflow.log_metric(key='val_balanced_loss', value=balanced_loss,
+                              step=epoch)
+            mlflow.log_metric(key='val_imbalanced_loss',
+                              value=imbalanced_loss,
+                              step=epoch)
             mlflow.log_metric(key='val_fpr', value=fpr, step=epoch)
             mlflow.log_metric(key='val_fnr', value=fnr, step=epoch)
 
             # Save best model
-            err = (fpr + fnr) / 2.
-            if 1-err >= best_acc:
-                best_acc = 1-err
+            err = (balanced_loss + imbalanced_loss) / 2.
+            if err < best_metric:
+                best_metric = err
                 obj = {
                     'epoch': epoch+1,
                     'state_dict': model.state_dict(),
-                    'best_acc': best_acc,
+                    'best_err': best_metric,
                     'optimizer': optimizer.state_dict()
                 }
                 torch.save(obj, os.path.join(args.output,
@@ -159,7 +164,7 @@ def train(loader, model, criterion, optimizer):
     return running_loss/len(loader.dataset)
 
 
-def calc_err(pred, probs, true, criterion: nn.CrossEntropyLoss):
+def calc_err(pred, probs, true, pos_loss_weight):
     pred = np.array(pred)
     probs = np.array(probs)
     true = np.array(true)
@@ -171,8 +176,13 @@ def calc_err(pred, probs, true, criterion: nn.CrossEntropyLoss):
     fpr = fp / (fp + tn)
     fnr = fn / (tp + fn)
 
-    loss = criterion(probs, true)
-    return fpr, fnr, loss
+    with torch.no_grad():
+        balanced_loss = nn.CrossEntropyLoss()(probs, true).item()
+        imbalanced_loss = \
+            nn.CrossEntropyLoss(
+                weight=torch.Tensor([1 - pos_loss_weight, pos_loss_weight]))\
+            (probs, true).item()
+    return fpr, fnr, balanced_loss, imbalanced_loss
 
 
 def get_topk_tiles(slide_indices, tile_preds, k=1):
