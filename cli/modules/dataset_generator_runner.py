@@ -1,7 +1,7 @@
 import argschema
 
 from cli.schemas.dataset_generator import DatasetGeneratorSchema
-from tile_classifier.dataset_generator import DatasetGenerator
+from src.tile_classifier.dataset_generator import DatasetGenerator
 
 
 class DatasetGeneratorRunner(argschema.ArgSchemaParser):
