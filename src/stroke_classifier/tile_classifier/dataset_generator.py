@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Union, List, Tuple
@@ -156,7 +157,9 @@ class DatasetGenerator:
             res = list(tqdm(
                 p.imap(self._get_tiles_for_slide, image_ids),
                 total=len(image_ids),
-                desc='Getting tiles'))
+                desc='Getting tiles',
+                file=sys.stdout
+            ))
 
         tiles = [{
             'slide_path': str(self._data_dir / f'{image_ids[i]}.tif'),
