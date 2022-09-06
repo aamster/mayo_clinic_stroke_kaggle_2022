@@ -1,0 +1,9 @@
+argschema~=2.0.2
+mlflow~=1.15.0
+numpy~=1.20.3
+torchvision~=0.10.0
+pillow~=8.3.1
+opencv-python~=4.5.2.52
+pandas~=1.2.4
+tqdm~=4.61.2
+setuptools~=52.0.0
