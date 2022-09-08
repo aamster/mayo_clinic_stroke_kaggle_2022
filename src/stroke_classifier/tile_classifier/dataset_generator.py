@@ -29,7 +29,7 @@ class DatasetGenerator:
         self._fg_thresh = fg_thresh
         self._downsample_factor = downsample_factor
 
-    def _downsample_slide(
+    def downsample_slide(
             self,
             slide: OpenSlide,
             tile_coords: List[Tuple[int, int]],
@@ -130,7 +130,7 @@ class DatasetGenerator:
                 for x in range(0, slide_width - self._tile_width,
                                self._tile_width):
                     tile_coords.append((x, y))
-            downsampled_slide = self._downsample_slide(
+            downsampled_slide = self.downsample_slide(
                 slide=slide,
                 tile_coords=tile_coords
             )
