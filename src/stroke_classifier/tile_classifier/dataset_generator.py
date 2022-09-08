@@ -59,7 +59,7 @@ class DatasetGenerator:
                 size=(self._tile_width, self._tile_height))
             resized_region = region.resize((tile_resized_width,
                                             tile_resized_height),
-                                           Image.LANCZOS)
+                                           Image.BILINEAR)
 
             resized_region = np.array(resized_region)
             resized_region = resized_region[:, :, :-1]
