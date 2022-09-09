@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from multiprocessing import Pool
 from pathlib import Path
@@ -20,33 +21,48 @@ class DatasetGenerator:
             data_dir: Union[str, Path],
             tile_width=1024,
             tile_height=1024,
-            fg_thresh=.5,
-            downsample_factor=64
+            fg_thresh=.5
     ):
         self._data_dir = Path(data_dir)
         self._tile_width = tile_width
         self._tile_height = tile_height
         self._fg_thresh = fg_thresh
-        self._downsample_factor = downsample_factor
+
+    @staticmethod
+    def _get_downsample_factor_for_slide(slide: OpenSlide, reduction=2e3):
+        slide_width, slide_height = slide.dimensions
+
+        downsample_factor = \
+            int(min(slide_height / reduction, slide_width / reduction))
+
+        # make power of 2 (necessary due to tile-based downsampling)
+        downsample_factor = \
+            pow(2, math.floor(math.log(downsample_factor) / math.log(2)))
+        return downsample_factor
 
     def downsample_slide(
             self,
             slide: OpenSlide,
-            tile_coords: List[Tuple[int, int]]
+            tile_coords: List[Tuple[int, int]],
+            remove_empty_rows_and_columns=False,
+            target_dim_reduction=2e3,
+            pruned_dim_reduction=1e3
     ) -> np.ndarray:
         """Downsamples slide prior to segmenting in order to fit it in
         memory"""
         slide_width, slide_height = slide.dimensions
 
-        tile_resized_width = self._tile_width // self._downsample_factor
-        tile_resized_height = self._tile_height // self._downsample_factor
+        downsample_factor = self._get_downsample_factor_for_slide(
+            slide=slide, reduction=target_dim_reduction)
+        tile_resized_width = self._tile_width // downsample_factor
+        tile_resized_height = self._tile_height // downsample_factor
 
         resized_width = \
-            int(int(slide_width / self._downsample_factor) /
+            int(int(slide_width / downsample_factor) /
                 tile_resized_width) \
             * tile_resized_width
         resized_height = \
-            int(int(slide_height / self._downsample_factor) /
+            int(int(slide_height / downsample_factor) /
                 tile_resized_height) \
             * tile_resized_height
 
@@ -64,12 +80,23 @@ class DatasetGenerator:
             resized_region = np.array(resized_region)
             resized_region = resized_region[:, :, :-1]
 
-            resized_x, resized_y = x // self._downsample_factor, \
-                y // self._downsample_factor
+            resized_x, resized_y = x // downsample_factor, \
+                y // downsample_factor
             resized_image[
                 resized_y:resized_y + tile_resized_height,
                 resized_x:resized_x + tile_resized_width
             ] = resized_region
+
+        if remove_empty_rows_and_columns:
+            mask = self._segment_slide(slide=resized_image)
+            pruned = _prune_image_rows_cols(im=resized_image, mask=mask)
+            pruned = Image.fromarray(pruned)
+            scale = min(pruned.height / pruned_dim_reduction,
+                        pruned.width / pruned_dim_reduction)
+            pruned = pruned.resize(
+                (int(pruned.width / scale), int(pruned.height / scale)),
+                Image.LANCZOS)
+            resized_image = pruned
         return resized_image
 
     def _segment_slide(
@@ -93,12 +120,14 @@ class DatasetGenerator:
     ) -> List[Tuple[int, int]]:
         """Identifies tiles which contain > fg_thresh foreground pixels"""
         res = []
-        for (x, y) in tile_coords:
-            resized_x, resized_y = x // self._downsample_factor, \
-                                   y // self._downsample_factor
+        downsample_factor = self._get_downsample_factor_for_slide(slide=slide)
 
-            tile_resized_width = self._tile_width // self._downsample_factor
-            tile_resized_height = self._tile_height // self._downsample_factor
+        for (x, y) in tile_coords:
+            resized_x, resized_y = x // downsample_factor, \
+                                   y // downsample_factor
+
+            tile_resized_width = self._tile_width // downsample_factor
+            tile_resized_height = self._tile_height // downsample_factor
 
             tile_mask = mask[
                 resized_y:resized_y + tile_resized_height,
@@ -168,3 +197,18 @@ class DatasetGenerator:
 
         with open(out_path, 'w') as f:
             json.dump(tiles, f, indent=2)
+
+
+def _prune_image_rows_cols(im, mask, thr=0.01) -> np.ndarray:
+    """removes empty rows and columns
+    @param im: image
+    @param mask: tissue mask
+    @param thr: emptiness threshold
+    @return: image with empty rows and columns removed
+
+    """
+    tissue_rows = mask.mean(axis=1) > thr
+    tissue_cols = mask.mean(axis=0) > thr
+    im = im[tissue_rows]
+    im = im[:, tissue_cols]
+    return im
