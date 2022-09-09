@@ -32,7 +32,7 @@ class DatasetGenerator:
     def downsample_slide(
             self,
             slide: OpenSlide,
-            tile_coords: List[Tuple[int, int]],
+            tile_coords: List[Tuple[int, int]]
     ) -> np.ndarray:
         """Downsamples slide prior to segmenting in order to fit it in
         memory"""
@@ -81,7 +81,7 @@ class DatasetGenerator:
 
         img_blur = cv2.GaussianBlur(img_gray, (5, 5), 0)
         mask = \
-            cv2.threshold(img_blur, 0, 255,
+            cv2.threshold(img_blur, 0, 1,
                           cv2.THRESH_OTSU + cv2.THRESH_BINARY_INV)[1]
         return mask
 
