@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from openslide import OpenSlide
+from skimage import morphology
 from tqdm import tqdm
 
 
@@ -45,7 +46,7 @@ class DatasetGenerator:
             slide: OpenSlide,
             tile_coords: List[Tuple[int, int]],
             remove_empty_rows_and_columns=False,
-            target_dim_reduction=2e3,
+            initial_dim_reduction=2e3,
             pruned_dim_reduction=1e3
     ) -> np.ndarray:
         """Downsamples slide prior to segmenting in order to fit it in
@@ -53,7 +54,7 @@ class DatasetGenerator:
         slide_width, slide_height = slide.dimensions
 
         downsample_factor = self._get_downsample_factor_for_slide(
-            slide=slide, reduction=target_dim_reduction)
+            slide=slide, reduction=initial_dim_reduction)
         tile_resized_width = self._tile_width // downsample_factor
         tile_resized_height = self._tile_height // downsample_factor
 
@@ -104,12 +105,17 @@ class DatasetGenerator:
             slide: np.ndarray
     ) -> np.ndarray:
         """Segment slide by applying otsu"""
-        img_gray = cv2.cvtColor(slide, cv2.COLOR_RGB2GRAY)
+        img_hsv = cv2.cvtColor(slide, cv2.COLOR_BGR2HSV)
+        saturation = img_hsv[:, :, 1]
 
-        img_blur = cv2.GaussianBlur(img_gray, (5, 5), 0)
+        img_blur = cv2.GaussianBlur(saturation, (5, 5), 0)
         mask = \
             cv2.threshold(img_blur, 0, 1,
-                          cv2.THRESH_OTSU + cv2.THRESH_BINARY_INV)[1]
+                          cv2.THRESH_OTSU + cv2.THRESH_BINARY)[1]
+        mask = mask.astype('bool')
+        mask = morphology.remove_small_holes(mask, area_threshold=5000)
+        mask = morphology.remove_small_objects(mask, min_size=5000)
+        mask = mask.astype('uint8')
         return mask
 
     def _get_tissue_tiles(
@@ -153,12 +159,10 @@ class DatasetGenerator:
         with OpenSlide(self._data_dir / f'{image_id}.tif') as slide:
             slide_width, slide_height = slide.dimensions
 
-            tile_coords = []
-            for y in range(0, slide_height - self._tile_height,
-                           self._tile_height):
-                for x in range(0, slide_width - self._tile_width,
-                               self._tile_width):
-                    tile_coords.append((x, y))
+            tile_coords = get_tiles_for_slide(
+                slide=slide,
+                tile_width=self._tile_width,
+                tile_height=self._tile_height)
             downsampled_slide = self.downsample_slide(
                 slide=slide,
                 tile_coords=tile_coords
@@ -212,3 +216,15 @@ def _prune_image_rows_cols(im, mask, thr=0.01) -> np.ndarray:
     im = im[tissue_rows]
     im = im[:, tissue_cols]
     return im
+
+
+def get_tiles_for_slide(slide: OpenSlide, tile_width: int, tile_height: int):
+    slide_width, slide_height = slide.dimensions
+
+    tile_coords = []
+    for y in range(0, slide_height - tile_height + 1,
+                   tile_height):
+        for x in range(0, slide_width - tile_width + 1,
+                       tile_width):
+            tile_coords.append((x, y))
+    return tile_coords
