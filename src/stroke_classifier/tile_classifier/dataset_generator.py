@@ -95,7 +95,7 @@ class DatasetGenerator:
                 resized_image = replace_background_with_constant(
                     img=resized_image, mask=mask)
             pruned = _prune_image_rows_cols(im=resized_image, mask=mask)
-            if pruned.shape[0] == 0:
+            if (np.array(pruned.shape) == 0).any():
                 raise NoTissueDetectedError('Bad image. Detected no tissue')
             pruned = Image.fromarray(pruned)
             scale = min(pruned.height / pruned_dim_reduction,
