@@ -95,6 +95,8 @@ class DatasetGenerator:
                 resized_image = replace_background_with_constant(
                     img=resized_image, mask=mask)
             pruned = _prune_image_rows_cols(im=resized_image, mask=mask)
+            if pruned.shape[0] == 0:
+                raise NoTissueDetectedError('Bad image. Detected no tissue')
             pruned = Image.fromarray(pruned)
             scale = min(pruned.height / pruned_dim_reduction,
                         pruned.width / pruned_dim_reduction)
@@ -238,3 +240,7 @@ def replace_background_with_constant(img: np.ndarray, mask: np.ndarray):
     white_bg = np.ones_like(img) * 255
     white_bg[mask == 1] = img[mask == 1]
     return white_bg
+
+
+class NoTissueDetectedError(RuntimeError):
+    pass
