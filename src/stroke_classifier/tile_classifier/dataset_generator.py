@@ -47,7 +47,8 @@ class DatasetGenerator:
             tile_coords: List[Tuple[int, int]],
             remove_empty_rows_and_columns=False,
             initial_dim_reduction=2e3,
-            pruned_dim_reduction=1e3
+            pruned_dim_reduction=1e3,
+            normalize_background=False
     ) -> np.ndarray:
         """Downsamples slide prior to segmenting in order to fit it in
         memory"""
@@ -90,6 +91,9 @@ class DatasetGenerator:
 
         if remove_empty_rows_and_columns:
             mask = self._segment_slide(slide=resized_image)
+            if normalize_background:
+                resized_image = replace_background_with_constant(
+                    img=resized_image, mask=mask)
             pruned = _prune_image_rows_cols(im=resized_image, mask=mask)
             pruned = Image.fromarray(pruned)
             scale = min(pruned.height / pruned_dim_reduction,
@@ -97,7 +101,7 @@ class DatasetGenerator:
             pruned = pruned.resize(
                 (int(pruned.width / scale), int(pruned.height / scale)),
                 Image.LANCZOS)
-            resized_image = pruned
+            resized_image = np.array(pruned)
         return resized_image
 
     def _segment_slide(
@@ -157,8 +161,6 @@ class DatasetGenerator:
 
     def _get_tiles_for_slide(self, image_id: str):
         with OpenSlide(self._data_dir / f'{image_id}.tif') as slide:
-            slide_width, slide_height = slide.dimensions
-
             tile_coords = get_tiles_for_slide(
                 slide=slide,
                 tile_width=self._tile_width,
@@ -219,6 +221,7 @@ def _prune_image_rows_cols(im, mask, thr=0.01) -> np.ndarray:
 
 
 def get_tiles_for_slide(slide: OpenSlide, tile_width: int, tile_height: int):
+    """Gets set if tile upper-left coords for `slide`"""
     slide_width, slide_height = slide.dimensions
 
     tile_coords = []
@@ -228,3 +231,10 @@ def get_tiles_for_slide(slide: OpenSlide, tile_width: int, tile_height: int):
                        tile_width):
             tile_coords.append((x, y))
     return tile_coords
+
+
+def replace_background_with_constant(img: np.ndarray, mask: np.ndarray):
+    """Replaces background with white"""
+    white_bg = np.ones_like(img) * 255
+    white_bg[mask == 1] = img[mask == 1]
+    return white_bg
