@@ -14,8 +14,7 @@ class DatasetGeneratorRunner(argschema.ArgSchemaParser):
             tile_width=self.args['tile_width'],
             tile_height=self.args['tile_height'],
             fg_thresh=self.args['foreground_threshold'],
-            data_dir=self.args['data_dir'],
-            downsample_factor=self.args['downsample_factor']
+            data_dir=self.args['data_dir']
         )
         dataset_generator.get_tiles(
             meta_path=self.args['meta_path'],
