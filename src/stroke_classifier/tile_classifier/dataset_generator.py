@@ -20,14 +20,22 @@ class DatasetGenerator:
     def __init__(
             self,
             data_dir: Union[str, Path],
+            downsampling_tile_width=1024,
+            downsampling_tile_height=1024,
             tile_width=1024,
             tile_height=1024,
-            fg_thresh=.5
+            fg_thresh=.5,
+            use_downsampled_slide=False,
+            segmentation_method='otsu'
     ):
         self._data_dir = Path(data_dir)
         self._tile_width = tile_width
         self._tile_height = tile_height
+        self._downsampling_tile_width = downsampling_tile_width
+        self._downsampling_tile_height = downsampling_tile_height
         self._fg_thresh = fg_thresh
+        self._use_downsampled_slide = use_downsampled_slide
+        self._segmentation_method = segmentation_method
 
     @staticmethod
     def _get_downsample_factor_for_slide(slide: OpenSlide, reduction=2e3):
@@ -44,7 +52,6 @@ class DatasetGenerator:
     def downsample_slide(
             self,
             slide: OpenSlide,
-            tile_coords: List[Tuple[int, int]],
             remove_empty_rows_and_columns=False,
             initial_dim_reduction=2e3,
             pruned_dim_reduction=1e3,
@@ -56,8 +63,10 @@ class DatasetGenerator:
 
         downsample_factor = self._get_downsample_factor_for_slide(
             slide=slide, reduction=initial_dim_reduction)
-        tile_resized_width = self._tile_width // downsample_factor
-        tile_resized_height = self._tile_height // downsample_factor
+        tile_resized_width = \
+            self._downsampling_tile_width // downsample_factor
+        tile_resized_height = \
+            self._downsampling_tile_height // downsample_factor
 
         resized_width = \
             int(int(slide_width / downsample_factor) /
@@ -71,10 +80,16 @@ class DatasetGenerator:
         resized_image = np.zeros((resized_height, resized_width, 3),
                                  dtype='uint8')
 
+        tile_coords = get_tiles_for_slide(
+                slide=slide,
+                tile_width=self._downsampling_tile_width,
+                tile_height=self._downsampling_tile_height
+            )
         for x, y in tile_coords:
             region = slide.read_region(
                 (x, y), level=0,
-                size=(self._tile_width, self._tile_height))
+                size=(self._downsampling_tile_width,
+                      self._downsampling_tile_height))
             resized_region = region.resize((tile_resized_width,
                                             tile_resized_height),
                                            Image.BILINEAR)
@@ -110,27 +125,36 @@ class DatasetGenerator:
             self,
             slide: np.ndarray
     ) -> np.ndarray:
-        """Segment slide by applying otsu"""
+        """Segment slide"""
         img_hsv = cv2.cvtColor(slide, cv2.COLOR_BGR2HSV)
         saturation = img_hsv[:, :, 1]
 
-        img_blur = cv2.GaussianBlur(saturation, (5, 5), 0)
-        mask = \
-            cv2.threshold(img_blur, 0, 1,
-                          cv2.THRESH_OTSU + cv2.THRESH_BINARY)[1]
-        mask = mask.astype('bool')
-        mask = morphology.remove_small_holes(mask, area_threshold=5000)
+        if self._segmentation_method == 'otsu':
+            img_blur = cv2.GaussianBlur(saturation, (5, 5), 0)
+            mask = \
+                cv2.threshold(img_blur, 0, 1,
+                              cv2.THRESH_OTSU + cv2.THRESH_BINARY)[1]
+            mask = mask.astype('bool')
+            mask = morphology.remove_small_holes(mask, area_threshold=5000)
+
+        else:
+            vals, counts = np.unique(saturation, return_counts=True)
+            mode = vals[np.argmax(counts)]
+            mask = saturation != mode
+
         mask = morphology.remove_small_objects(mask, min_size=5000)
         mask = mask.astype('uint8')
         return mask
 
-    def _get_tissue_tiles(
+    def _get_tissue_tiles_from_fullsize_slide(
             self,
             slide: OpenSlide,
+            downsampled_slide: np.ndarray,
             mask: np.ndarray,
             tile_coords: List[Tuple[int, int]]
     ) -> List[Tuple[int, int]]:
-        """Identifies tiles which contain > fg_thresh foreground pixels"""
+        """Identifies tiles which contain > fg_thresh foreground pixels
+        from the original full size slide"""
         res = []
         downsample_factor = self._get_downsample_factor_for_slide(slide=slide)
 
@@ -141,42 +165,87 @@ class DatasetGenerator:
             tile_resized_width = self._tile_width // downsample_factor
             tile_resized_height = self._tile_height // downsample_factor
 
-            tile_mask = mask[
-                resized_y:resized_y + tile_resized_height,
-                resized_x:resized_x + tile_resized_width]
-
-            is_tissue = (tile_mask != 0)
-            foreground_frac = is_tissue.mean()
-            if foreground_frac > self._fg_thresh:
-                tile = slide.read_region(
-                    location=(x, y),
-                    level=0,
-                    size=(self._tile_width, self._tile_height)
-                )
-                tile = np.array(tile)
-                tile_gray = cv2.cvtColor(tile, cv2.COLOR_RGB2GRAY)
-
-                # avoids noise from being considered foreground pixels
-                if np.std(tile_gray) > 5:
-                    res.append((x, y))
+            is_tissue_tile = self._is_tissue_tile(
+                slide=downsampled_slide,
+                upper_left_coord=(resized_x, resized_y),
+                mask=mask,
+                tile_width=tile_resized_width,
+                tile_height=tile_resized_height
+            )
+            if is_tissue_tile:
+                res.append((x, y))
         return res
 
-    def _get_tiles_for_slide(self, image_id: str):
+    def _get_tissue_tiles_from_downsampled_slide(
+            self,
+            slide: np.ndarray,
+            mask: np.ndarray,
+            tile_coords: List[Tuple[int, int]]):
+        res = []
+        for (x, y) in tile_coords:
+            is_tissue_tile = self._is_tissue_tile(
+                slide=slide,
+                upper_left_coord=(x, y),
+                mask=mask,
+                tile_height=self._tile_height,
+                tile_width=self._tile_width
+            )
+            if is_tissue_tile:
+                res.append((x, y))
+        return res
+
+    def _is_tissue_tile(
+            self,
+            slide: np.ndarray,
+            upper_left_coord: Tuple[int, int],
+            mask: np.ndarray,
+            tile_width: int,
+            tile_height: int
+    ):
+        x, y = upper_left_coord
+        tile_mask = mask[y:y + tile_height, x:x + tile_width]
+        is_tissue = (tile_mask != 0)
+        foreground_frac = is_tissue.mean()
+        if foreground_frac > self._fg_thresh:
+            tile = slide[y:y + tile_height, x:x + tile_width]
+
+            tile_gray = cv2.cvtColor(tile, cv2.COLOR_RGB2GRAY)
+
+            # avoids noise from being considered foreground pixels
+            if np.std(tile_gray) > 5:
+                return True
+            else:
+                return False
+        return False
+
+    def _get_tiles_for_slide(
+            self,
+            image_id: str
+    ):
         with OpenSlide(self._data_dir / f'{image_id}.tif') as slide:
-            tile_coords = get_tiles_for_slide(
-                slide=slide,
-                tile_width=self._tile_width,
-                tile_height=self._tile_height)
             downsampled_slide = self.downsample_slide(
-                slide=slide,
-                tile_coords=tile_coords
+                slide=slide
             )
             mask = self._segment_slide(slide=downsampled_slide)
-            tissue_tiles = self._get_tissue_tiles(
-                slide=slide,
-                mask=mask,
-                tile_coords=tile_coords
+            tile_coords = get_tiles_for_slide(
+                slide=downsampled_slide if self._use_downsampled_slide else slide,
+                tile_width=self._tile_width,
+                tile_height=self._tile_height
             )
+
+            if self._use_downsampled_slide:
+                tissue_tiles = self._get_tissue_tiles_from_downsampled_slide(
+                    slide=downsampled_slide,
+                    mask=mask,
+                    tile_coords=tile_coords
+                )
+            else:
+                tissue_tiles = self._get_tissue_tiles_from_fullsize_slide(
+                    slide=slide,
+                    downsampled_slide=downsampled_slide,
+                    mask=mask,
+                    tile_coords=tile_coords
+                )
         return tissue_tiles
 
     def get_tiles(
@@ -222,9 +291,12 @@ def _prune_image_rows_cols(im, mask, thr=0.01) -> np.ndarray:
     return im
 
 
-def get_tiles_for_slide(slide: OpenSlide, tile_width: int, tile_height: int):
-    """Gets set if tile upper-left coords for `slide`"""
-    slide_width, slide_height = slide.dimensions
+def get_tiles_for_slide(slide: Union[OpenSlide, np.ndarray],
+                        tile_width: int, tile_height: int):
+    """Gets set of tile upper-left coords for `slide`"""
+    slide_width, slide_height = \
+        slide.dimensions if isinstance(slide, OpenSlide) else \
+        (slide.shape[1], slide.shape[0])
 
     tile_coords = []
     for y in range(0, slide_height - tile_height + 1,
