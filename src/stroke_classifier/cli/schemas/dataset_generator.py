@@ -17,7 +17,8 @@ class DatasetGeneratorSchema(argschema.ArgSchema):
     ignore_image_ids = argschema.fields.List(
         argschema.fields.Str,
         required=False,
-        help='List of known bad image ids'
+        help='List of known bad image ids',
+        cli_as_single_argument=True
     )
     meta_path = argschema.fields.InputFile(
         required=True,
