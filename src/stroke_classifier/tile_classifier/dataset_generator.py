@@ -109,7 +109,7 @@ class DatasetGenerator:
             mask = self.segment_slide(slide=resized_image)
             if normalize_background:
                 resized_image = replace_background_with_constant(
-                    img=resized_image, mask=mask)
+                    slide=resized_image)
             pruned = prune_image_rows_cols(im=resized_image, mask=mask)
             if (np.array(pruned.shape) == 0).any():
                 raise NoTissueDetectedError('Bad image. Detected no tissue')
@@ -122,30 +122,11 @@ class DatasetGenerator:
             resized_image = np.array(pruned)
         return resized_image
 
+    @staticmethod
     def segment_slide(
-            self,
             slide: np.ndarray
     ) -> np.ndarray:
         """Segment slide"""
-        def remove_background(slide):
-            """Removes background by comparing with known background colors"""
-            backgrounds = [
-                (196, 211, 192),
-                (202, 205, 253),
-                (192, 197, 250),
-                (187, 205, 185),
-                (255, 238, 254),
-                (232, 210, 252),
-                (226, 205, 245),
-                (255, 225, 245),
-                (218, 195, 251)
-            ]
-            for background in backgrounds:
-                is_bg = (np.abs(slide - background) / background < 0.05)\
-                    .all(axis=-1)
-                slide[is_bg] = (255, 255, 255)
-            return slide
-
         def increase_contrast(saturation):
             """Increase contrast to help in segmentation"""
             low = 0.2
@@ -164,7 +145,8 @@ class DatasetGenerator:
             saturation = saturation.astype('uint8')
             return saturation
 
-        slide = remove_background(slide)
+        slide = slide.copy()
+        slide = replace_background_with_constant(slide)
         img_hsv = cv2.cvtColor(slide, cv2.COLOR_RGB2HSV)
         saturation = img_hsv[:, :, 1]
 
@@ -365,11 +347,24 @@ def get_tiles_for_slide(slide: Union[OpenSlide, np.ndarray],
     return tile_coords
 
 
-def replace_background_with_constant(img: np.ndarray, mask: np.ndarray):
-    """Replaces background with white"""
-    white_bg = np.ones_like(img) * 255
-    white_bg[mask == 1] = img[mask == 1]
-    return white_bg
+def replace_background_with_constant(slide: np.ndarray):
+    """Removes background by comparing with known background colors"""
+    backgrounds = [
+        (196, 211, 192),
+        (202, 205, 253),
+        (192, 197, 250),
+        (187, 205, 185),
+        (255, 238, 254),
+        (232, 210, 252),
+        (226, 205, 245),
+        (255, 225, 245),
+        (218, 195, 251)
+    ]
+    for background in backgrounds:
+        is_bg = (np.abs(slide - background) / background < 0.05) \
+            .all(axis=-1)
+        slide[is_bg] = (255, 255, 255)
+    return slide
 
 
 class NoTissueDetectedError(RuntimeError):
