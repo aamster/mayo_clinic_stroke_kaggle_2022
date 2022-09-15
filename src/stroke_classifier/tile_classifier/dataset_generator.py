@@ -133,11 +133,9 @@ class DatasetGenerator:
             high = 0.8
             min, max = np.quantile(saturation, (low, high))
             if max == 0:
-                while max == 0 and high <= 1:
+                while max == 0 and high < 1:
                     high += .01
                     max = np.quantile(saturation, high)
-            if max == min:
-                return saturation
             saturation[saturation <= min] = min
             saturation[saturation >= max] = max
             saturation = \
