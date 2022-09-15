@@ -127,15 +127,16 @@ class DatasetGenerator:
             slide: np.ndarray
     ) -> np.ndarray:
         """Segment slide"""
-        def increase_contrast(saturation):
+        def increase_contrast(saturation, min=None, max=None):
             """Increase contrast to help in segmentation"""
-            low = 0.2
-            high = 0.8
-            min, max = np.quantile(saturation, (low, high))
-            if max == 0:
-                while max == 0 and high < 1:
-                    high += .01
-                    max = np.quantile(saturation, high)
+            if min is None and max is None:
+                low = 0.2
+                high = 0.8
+                min, max = np.quantile(saturation, (low, high))
+                if max == 0:
+                    while max == 0 and high < 1:
+                        high += .05
+                        max = np.quantile(saturation, high)
             saturation[saturation <= min] = min
             saturation[saturation >= max] = max
             saturation = \
@@ -143,7 +144,7 @@ class DatasetGenerator:
                 (saturation.max() - saturation.min())
             saturation *= 255
             saturation = saturation.astype('uint8')
-            return saturation
+            return saturation, min, max
 
         slide = slide.copy()
         slide = replace_background_with_constant(slide)
@@ -158,10 +159,14 @@ class DatasetGenerator:
         mask = np.zeros_like(saturation)
         mask[saturation >= threshold] = 1
         pruned = prune_image_rows_cols(im=saturation, mask=mask)
-        saturation_pruned = increase_contrast(saturation=pruned)
+        saturation_pruned, low_cutoff, high_cutoff = \
+            increase_contrast(saturation=pruned)
         threshold = threshold_otsu(saturation_pruned)
 
-        saturation = increase_contrast(saturation=saturation)
+        saturation, _, _ = increase_contrast(
+            saturation=saturation,
+            min=low_cutoff,
+            max=high_cutoff)
         img_blur = cv2.GaussianBlur(saturation, (5, 5), 0)
         mask = np.zeros_like(img_blur)
         mask[img_blur >= threshold] = 1
