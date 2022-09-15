@@ -11,6 +11,7 @@ import pandas as pd
 from PIL import Image
 from openslide import OpenSlide
 from skimage import morphology
+from skimage.filters import threshold_multiotsu, threshold_otsu
 from tqdm import tqdm
 
 
@@ -25,8 +26,7 @@ class DatasetGenerator:
             tile_width=1024,
             tile_height=1024,
             fg_thresh=.5,
-            use_downsampled_slide=False,
-            segmentation_method='otsu'
+            use_downsampled_slide=False
     ):
         self._data_dir = Path(data_dir)
         self._tile_width = tile_width
@@ -35,7 +35,6 @@ class DatasetGenerator:
         self._downsampling_tile_height = downsampling_tile_height
         self._fg_thresh = fg_thresh
         self._use_downsampled_slide = use_downsampled_slide
-        self._segmentation_method = segmentation_method
 
     @staticmethod
     def _get_downsample_factor_for_slide(slide: OpenSlide, reduction=2e3):
@@ -126,22 +125,65 @@ class DatasetGenerator:
             slide: np.ndarray
     ) -> np.ndarray:
         """Segment slide"""
-        img_hsv = cv2.cvtColor(slide, cv2.COLOR_BGR2HSV)
+        def remove_background(slide):
+            """Removes background by comparing with known background colors"""
+            backgrounds = [
+                (196, 211, 192),
+                (202, 205, 253),
+                (192, 197, 250),
+                (187, 205, 185),
+                (255, 238, 254),
+                (232, 210, 252),
+                (226, 205, 245),
+                (255, 225, 245),
+                (218, 195, 251)
+            ]
+            for background in backgrounds:
+                is_bg = (np.abs(slide - background) / background < 0.05)\
+                    .all(axis=-1)
+                slide[is_bg] = (255, 255, 255)
+            return slide
+
+        def increase_contrast(saturation):
+            """Increase contrast to help in segmentation"""
+            low = 0.2
+            high = 0.8
+            min, max = np.quantile(saturation, (low, high))
+            if max == 0:
+                while max == 0:
+                    high += .05
+                    max = np.quantile(saturation, high)
+            saturation[saturation <= min] = min
+            saturation[saturation >= max] = max
+            saturation = \
+                (saturation - saturation.min()) / \
+                (saturation.max() - saturation.min())
+            saturation *= 255
+            saturation = saturation.astype('uint8')
+            return saturation
+
+        slide = remove_background(slide)
+        img_hsv = cv2.cvtColor(slide, cv2.COLOR_RGB2HSV)
         saturation = img_hsv[:, :, 1]
 
-        if self._segmentation_method == 'otsu':
-            img_blur = cv2.GaussianBlur(saturation, (5, 5), 0)
-            mask = \
-                cv2.threshold(img_blur, 0, 1,
-                              cv2.THRESH_OTSU + cv2.THRESH_BINARY)[1]
-            mask = mask.astype('bool')
-            mask = morphology.remove_small_holes(mask, area_threshold=5000)
+        threshold = threshold_otsu(saturation)
 
-        else:
-            vals, counts = np.unique(saturation, return_counts=True)
-            mode = vals[np.argmax(counts)]
-            mask = saturation != mode
+        # Prune the slide to not overwhelm the quantiles with 0 pixels,
+        # then increase contrast
+        # then get threshold
+        mask = np.zeros_like(saturation)
+        mask[saturation >= threshold] = 1
+        pruned = _prune_image_rows_cols(im=saturation, mask=mask)
+        saturation_pruned = increase_contrast(saturation=pruned)
+        threshold = threshold_otsu(saturation_pruned)
 
+        saturation = increase_contrast(saturation=saturation)
+        img_blur = cv2.GaussianBlur(saturation, (5, 5), 0)
+        mask = np.zeros_like(img_blur)
+        mask[img_blur >= threshold] = 1
+
+        mask = mask.astype('bool')
+        mask = morphology.remove_small_holes(mask, area_threshold=5000)
         mask = morphology.remove_small_objects(mask, min_size=5000)
         mask = mask.astype('uint8')
         return mask
@@ -156,24 +198,18 @@ class DatasetGenerator:
         """Identifies tiles which contain > fg_thresh foreground pixels
         from the original full size slide"""
         res = []
-        downsample_factor = self._get_downsample_factor_for_slide(slide=slide)
-
-        for (x, y) in tile_coords:
-            resized_x, resized_y = x // downsample_factor, \
-                                   y // downsample_factor
-
-            tile_resized_width = self._tile_width // downsample_factor
-            tile_resized_height = self._tile_height // downsample_factor
-
+        tiles = self._get_downsampled_tiles(tile_coords=tile_coords,
+                                            slide=slide)
+        for tile in tiles:
             is_tissue_tile = self._is_tissue_tile(
                 slide=downsampled_slide,
-                upper_left_coord=(resized_x, resized_y),
+                upper_left_coord=(tile['x'], tile['y']),
                 mask=mask,
-                tile_width=tile_resized_width,
-                tile_height=tile_resized_height
+                tile_width=tile['width'],
+                tile_height=tile['height']
             )
             if is_tissue_tile:
-                res.append((x, y))
+                res.append((tile['x'], tile['y']))
         return res
 
     def _get_tissue_tiles_from_downsampled_slide(
@@ -247,6 +283,24 @@ class DatasetGenerator:
                     tile_coords=tile_coords
                 )
         return tissue_tiles
+
+    def _get_downsampled_tiles(self, tile_coords, slide: OpenSlide):
+        downsample_factor = self._get_downsample_factor_for_slide(slide=slide)
+
+        res = []
+        for (x, y) in tile_coords:
+            resized_x, resized_y = x // downsample_factor, \
+                                   y // downsample_factor
+
+            tile_resized_width = self._tile_width // downsample_factor
+            tile_resized_height = self._tile_height // downsample_factor
+            res.append({
+                'x': resized_x,
+                'y': resized_y,
+                'height': tile_resized_height,
+                'width': tile_resized_width
+            })
+        return res
 
     def get_tiles(
             self,
