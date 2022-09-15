@@ -184,6 +184,7 @@ class DatasetGenerator:
         res = []
         tiles = self._get_downsampled_tiles(tile_coords=tile_coords,
                                             slide=slide)
+        downsample_factor = self.get_downsample_factor_for_slide(slide=slide)
         for tile in tiles:
             is_tissue_tile = self._is_tissue_tile(
                 slide=downsampled_slide,
@@ -193,7 +194,10 @@ class DatasetGenerator:
                 tile_height=tile['height']
             )
             if is_tissue_tile:
-                res.append((tile['x'], tile['y']))
+                # Resize to original slide dimensions
+                x = tile['x'] * downsample_factor
+                y = tile['y'] * downsample_factor
+                res.append((x, y))
         return res
 
     def _get_tissue_tiles_from_downsampled_slide(

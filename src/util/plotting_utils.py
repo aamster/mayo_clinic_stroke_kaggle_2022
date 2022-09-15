@@ -31,9 +31,18 @@ def plot_sampled_regions(
 
     for tile in tiles:
         x, y = tile
-        cv2.rectangle(downsampled_slide, pt1=(x, y),
-                      pt2=(x + int(tile_width / downsample_factor),
-                           y + int(tile_height / downsample_factor)),
+        # Downsample the coordinates
+        x = int(x / downsample_factor)
+        y = int(y / downsample_factor)
+
+        # Downsample the dimensions
+        tile_width_downsampled = int(tile_width / downsample_factor)
+        tile_height_downsampled = int(tile_height / downsample_factor)
+
+        cv2.rectangle(downsampled_slide,
+                      pt1=(x, y),
+                      pt2=(x + tile_width_downsampled,
+                           y + tile_height_downsampled),
                       color=(0, 255, 0), thickness=3)
     mask = data_gen.segment_slide(slide=downsampled_slide)
     pruned = prune_image_rows_cols(im=downsampled_slide, mask=mask)
