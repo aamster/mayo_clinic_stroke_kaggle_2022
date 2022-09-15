@@ -108,7 +108,7 @@ class DatasetGenerator:
             if normalize_background:
                 resized_image = replace_background_with_constant(
                     img=resized_image, mask=mask)
-            pruned = _prune_image_rows_cols(im=resized_image, mask=mask)
+            pruned = prune_image_rows_cols(im=resized_image, mask=mask)
             if (np.array(pruned.shape) == 0).any():
                 raise NoTissueDetectedError('Bad image. Detected no tissue')
             pruned = Image.fromarray(pruned)
@@ -173,7 +173,7 @@ class DatasetGenerator:
         # then get threshold
         mask = np.zeros_like(saturation)
         mask[saturation >= threshold] = 1
-        pruned = _prune_image_rows_cols(im=saturation, mask=mask)
+        pruned = prune_image_rows_cols(im=saturation, mask=mask)
         saturation_pruned = increase_contrast(saturation=pruned)
         threshold = threshold_otsu(saturation_pruned)
 
@@ -330,7 +330,7 @@ class DatasetGenerator:
             json.dump(tiles, f, indent=2)
 
 
-def _prune_image_rows_cols(im, mask, thr=0.01) -> np.ndarray:
+def prune_image_rows_cols(im, mask, thr=0.01) -> np.ndarray:
     """removes empty rows and columns
     @param im: image
     @param mask: tissue mask

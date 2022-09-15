@@ -5,7 +5,7 @@ import numpy as np
 from openslide import OpenSlide
 
 from stroke_classifier.tile_classifier.dataset_generator import \
-    DatasetGenerator, _prune_image_rows_cols
+    DatasetGenerator, prune_image_rows_cols
 
 
 def plot_sampled_regions(
@@ -36,6 +36,6 @@ def plot_sampled_regions(
                            y + int(tile_height / downsample_factor)),
                       color=(0, 255, 0), thickness=3)
     mask = data_gen.segment_slide(slide=downsampled_slide)
-    pruned = _prune_image_rows_cols(im=downsampled_slide, mask=mask)
+    pruned = prune_image_rows_cols(im=downsampled_slide, mask=mask)
 
     return pruned
