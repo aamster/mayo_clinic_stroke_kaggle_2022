@@ -37,7 +37,7 @@ class DatasetGenerator:
         self._use_downsampled_slide = use_downsampled_slide
 
     @staticmethod
-    def _get_downsample_factor_for_slide(slide: OpenSlide, reduction=2e3):
+    def get_downsample_factor_for_slide(slide: OpenSlide, reduction=2e3):
         slide_width, slide_height = slide.dimensions
 
         downsample_factor = \
@@ -60,7 +60,7 @@ class DatasetGenerator:
         memory"""
         slide_width, slide_height = slide.dimensions
 
-        downsample_factor = self._get_downsample_factor_for_slide(
+        downsample_factor = self.get_downsample_factor_for_slide(
             slide=slide, reduction=initial_dim_reduction)
         tile_resized_width = \
             self._downsampling_tile_width // downsample_factor
@@ -104,7 +104,7 @@ class DatasetGenerator:
             ] = resized_region
 
         if remove_empty_rows_and_columns:
-            mask = self._segment_slide(slide=resized_image)
+            mask = self.segment_slide(slide=resized_image)
             if normalize_background:
                 resized_image = replace_background_with_constant(
                     img=resized_image, mask=mask)
@@ -120,7 +120,7 @@ class DatasetGenerator:
             resized_image = np.array(pruned)
         return resized_image
 
-    def _segment_slide(
+    def segment_slide(
             self,
             slide: np.ndarray
     ) -> np.ndarray:
@@ -254,7 +254,7 @@ class DatasetGenerator:
                 return False
         return False
 
-    def _get_tiles_for_slide(
+    def get_tiles_for_slide(
             self,
             image_id: str
     ):
@@ -262,7 +262,7 @@ class DatasetGenerator:
             downsampled_slide = self.downsample_slide(
                 slide=slide
             )
-            mask = self._segment_slide(slide=downsampled_slide)
+            mask = self.segment_slide(slide=downsampled_slide)
             tile_coords = get_tiles_for_slide(
                 slide=downsampled_slide if self._use_downsampled_slide else slide,
                 tile_width=self._tile_width,
@@ -285,7 +285,7 @@ class DatasetGenerator:
         return tissue_tiles
 
     def _get_downsampled_tiles(self, tile_coords, slide: OpenSlide):
-        downsample_factor = self._get_downsample_factor_for_slide(slide=slide)
+        downsample_factor = self.get_downsample_factor_for_slide(slide=slide)
 
         res = []
         for (x, y) in tile_coords:
@@ -314,7 +314,7 @@ class DatasetGenerator:
         targets = meta['label'].tolist()
         with Pool(processes=os.cpu_count()) as p:
             res = list(tqdm(
-                p.imap(self._get_tiles_for_slide, image_ids),
+                p.imap(self.get_tiles_for_slide, image_ids),
                 total=len(image_ids),
                 desc='Getting tiles'
             ))
