@@ -14,9 +14,10 @@ class DatasetGeneratorSchema(argschema.ArgSchema):
         default=0.1,
         description='foreground threshold'
     )
-    downsample_factor = argschema.fields.Integer(
-        default=64,
-        description='Downsample factor when segmenting'
+    ignore_image_ids = argschema.fields.List(
+        argschema.fields.Str,
+        required=False,
+        help='List of known bad image ids'
     )
     meta_path = argschema.fields.InputFile(
         required=True,

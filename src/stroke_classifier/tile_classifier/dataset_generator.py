@@ -3,7 +3,7 @@ import math
 import os
 from multiprocessing import Pool
 from pathlib import Path
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Optional
 
 import cv2
 import numpy as np
@@ -11,7 +11,7 @@ import pandas as pd
 from PIL import Image
 from openslide import OpenSlide
 from skimage import morphology
-from skimage.filters import threshold_multiotsu, threshold_otsu
+from skimage.filters import threshold_otsu
 from tqdm import tqdm
 
 
@@ -26,7 +26,8 @@ class DatasetGenerator:
             tile_width=1024,
             tile_height=1024,
             fg_thresh=.5,
-            use_downsampled_slide=False
+            use_downsampled_slide=False,
+            ignore_image_ids: Optional[List] = None
     ):
         self._data_dir = Path(data_dir)
         self._tile_width = tile_width
@@ -35,6 +36,7 @@ class DatasetGenerator:
         self._downsampling_tile_height = downsampling_tile_height
         self._fg_thresh = fg_thresh
         self._use_downsampled_slide = use_downsampled_slide
+        self._ignore_image_ids = ignore_image_ids
 
     @staticmethod
     def get_downsample_factor_for_slide(slide: OpenSlide, reduction=2e3):
@@ -310,6 +312,8 @@ class DatasetGenerator:
         meta_path = Path(meta_path)
 
         meta = pd.read_csv(meta_path, dtype={'center_id': str})
+        if self._ignore_image_ids is not None:
+            meta = meta[~meta['image_id'].isin(self._ignore_image_ids)]
         image_ids = meta['image_id'].tolist()
         targets = meta['label'].tolist()
         with Pool(processes=os.cpu_count()) as p:
