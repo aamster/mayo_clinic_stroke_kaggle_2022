@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import List, Tuple
 
 import cv2
 import numpy as np
@@ -8,21 +9,14 @@ from stroke_classifier.tile_classifier.dataset_generator import \
     DatasetGenerator, prune_image_rows_cols
 
 
-def plot_sampled_regions(
+def _plot_sampled_regions(
+        data_gen: DatasetGenerator,
         image_id,
+        tiles: List[Tuple[int, int]],
         data_dir,
         tile_width=224,
         tile_height=224
-) -> np.ndarray:
-    """Returns pruned, downsampled slide with boxes indicating sampled tissue
-    """
-    data_gen = DatasetGenerator(data_dir=data_dir,
-                                use_downsampled_slide=False,
-                                tile_width=tile_width,
-                                tile_height=tile_height,
-                                fg_thresh=0.9)
-
-    tiles = data_gen.get_tiles_for_slide(image_id=image_id)
+):
     data_dir = Path(data_dir)
     with OpenSlide(data_dir / f'{image_id}.tif') as slide:
         downsampled_slide = data_gen.downsample_slide(slide=slide)
@@ -48,3 +42,28 @@ def plot_sampled_regions(
     pruned = prune_image_rows_cols(im=downsampled_slide, mask=mask)
 
     return pruned
+
+
+def plot_sampled_regions(
+        image_id,
+        data_dir,
+        tile_width=224,
+        tile_height=224
+) -> np.ndarray:
+    """Returns pruned, downsampled slide with boxes indicating sampled tissue
+    """
+    data_gen = DatasetGenerator(data_dir=data_dir,
+                                use_downsampled_slide=False,
+                                tile_width=tile_width,
+                                tile_height=tile_height,
+                                fg_thresh=0.9)
+
+    tiles = data_gen.get_tiles_for_slide(image_id=image_id)
+    return _plot_sampled_regions(
+        data_gen=data_gen,
+        data_dir=data_dir,
+        image_id=image_id,
+        tiles=tiles,
+        tile_width=tile_width,
+        tile_height=tile_height
+    )
