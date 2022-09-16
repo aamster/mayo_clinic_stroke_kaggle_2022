@@ -10,19 +10,13 @@ from stroke_classifier.tile_classifier.dataset_generator import \
 
 
 def _plot_sampled_regions(
-        data_gen: DatasetGenerator,
-        image_id,
+        downsampled_slide: np.ndarray,
+        downsample_factor: int,
+        mask: np.ndarray,
         tiles: List[Tuple[int, int]],
-        data_dir,
         tile_width=224,
         tile_height=224
 ):
-    data_dir = Path(data_dir)
-    with OpenSlide(data_dir / f'{image_id}.tif') as slide:
-        downsampled_slide = data_gen.downsample_slide(slide=slide)
-        downsample_factor = \
-            data_gen.get_downsample_factor_for_slide(slide=slide)
-
     for tile in tiles:
         x, y = tile
         # Downsample the coordinates
@@ -38,7 +32,6 @@ def _plot_sampled_regions(
                       pt2=(x + tile_width_downsampled,
                            y + tile_height_downsampled),
                       color=(0, 255, 0), thickness=3)
-    mask = data_gen.segment_slide(slide=downsampled_slide)
     pruned = prune_image_rows_cols(im=downsampled_slide, mask=mask)
 
     return pruned
@@ -59,10 +52,16 @@ def plot_sampled_regions(
                                 fg_thresh=0.9)
 
     tiles = data_gen.get_tiles_for_slide(image_id=image_id)
+    data_dir = Path(data_dir)
+    with OpenSlide(data_dir / f'{image_id}.tif') as slide:
+        downsampled_slide = data_gen.downsample_slide(slide=slide)
+        downsample_factor = \
+            data_gen.get_downsample_factor_for_slide(slide=slide)
+    mask = data_gen.segment_slide(slide=downsampled_slide)
     return _plot_sampled_regions(
-        data_gen=data_gen,
-        data_dir=data_dir,
-        image_id=image_id,
+        downsampled_slide=downsampled_slide,
+        downsample_factor=downsample_factor,
+        mask=mask,
         tiles=tiles,
         tile_width=tile_width,
         tile_height=tile_height
