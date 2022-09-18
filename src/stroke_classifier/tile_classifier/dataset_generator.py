@@ -142,7 +142,7 @@ class DatasetGenerator:
                         high += .01
                         max = np.quantile(saturation, high)
             if min == max:
-                return saturation
+                raise RuntimeError('Couldn\'t increase contrast')
             saturation[saturation <= min] = min
             saturation[saturation >= max] = max
             saturation = \
@@ -165,8 +165,14 @@ class DatasetGenerator:
         mask = np.zeros_like(saturation)
         mask[saturation >= threshold] = 1
         pruned = prune_image_rows_cols(im=saturation, mask=mask)
-        saturation_pruned, low_cutoff, high_cutoff = \
-            increase_contrast(saturation=pruned)
+        try:
+            saturation_pruned, low_cutoff, high_cutoff = \
+                increase_contrast(saturation=pruned)
+        except RuntimeError as e:
+            print(f'{e}')
+            saturation_pruned = pruned
+            low_cutoff = saturation_pruned.min()
+            high_cutoff = saturation_pruned.max()
         threshold = threshold_otsu(saturation_pruned)
 
         saturation, _, _ = increase_contrast(
@@ -349,6 +355,8 @@ def prune_image_rows_cols(im, mask, thr=0.01) -> np.ndarray:
     tissue_cols = mask.mean(axis=0) > thr
     im = im[tissue_rows]
     im = im[:, tissue_cols]
+    if (np.array(im.shape) == 0).any():
+        raise NoTissueDetectedError('Bad image. Pruned away the entire image')
     return im
 
 
