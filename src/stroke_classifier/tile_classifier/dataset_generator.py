@@ -134,9 +134,15 @@ class DatasetGenerator:
                 high = 0.8
                 min, max = np.quantile(saturation, (low, high))
                 if max == 0:
-                    while max == 0 and high < 1:
+                    while max == 0 and high < 0.95:
                         high += .05
                         max = np.quantile(saturation, high)
+                if max == 0:
+                    while max == 0 and high < 1:
+                        high += .01
+                        max = np.quantile(saturation, high)
+            if min == max:
+                return saturation
             saturation[saturation <= min] = min
             saturation[saturation >= max] = max
             saturation = \
@@ -232,6 +238,12 @@ class DatasetGenerator:
             tile_height: int
     ):
         x, y = upper_left_coord
+        if x < 0 or y < 0:
+            return False
+        if x > mask.shape[1] or x + tile_width > mask.shape[1]:
+            return False
+        if y > mask.shape[0] or y + tile_height > mask.shape[0]:
+            return False
         tile_mask = mask[y:y + tile_height, x:x + tile_width]
         is_tissue = (tile_mask != 0)
         foreground_frac = is_tissue.mean()
