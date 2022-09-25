@@ -1,11 +1,9 @@
-import sys
+import json
 from pathlib import Path
 from typing import Union, List
 
-import numpy as np
-import openslide
+from openslide import OpenSlide
 import torch
-from PIL import Image
 from torch.utils import data
 from torchvision.transforms import transforms
 
@@ -17,66 +15,59 @@ class MILdataset(data.Dataset):
         if mode not in valid_modes:
             raise ValueError(f'Mode must be one of {valid_modes}. Got {mode}')
 
-        dataset = torch.load(dataset_path)
-        slides = []
-        for i, name in enumerate(dataset['slides']):
-            sys.stdout.write(
-                f'Opening SVS headers: [{i+1}/{dataset["slides"]}]\r')
-            sys.stdout.flush()
-            slides.append({
-                'index': i,
-                'slide': openslide.OpenSlide(name),
-                'path': name,
-                'target': dataset['targets'][i]
-            })
-        print('')
-
-        # Flatten grid
+        with open(dataset_path) as f:
+            dataset = json.load(f)
+        slides = {}
         tiles = []
-        for i, slide_tiles in enumerate(dataset['grid']):
-            tiles += [
-                {'slide': i,
-                 'coord': tile,
-                 'target': (dataset['targets'][i]
-                            if 'targets' in dataset else None)
-                 } for tile in slide_tiles]
-
-        print('Number of tiles: {}'.format(len(tiles)))
+        for i, slide in enumerate(dataset):
+            image_id = Path(slide['slide_path']).stem
+            slides[image_id] = {
+                'slide': OpenSlide(slide['slide_path']),
+                'path:': slide['slide_path'],
+                'target': int(slide['target'] == 'LAA'),
+                'index': i
+            }
+            for coord in slide['tile_coords']:
+                tiles.append({
+                    'image_id': image_id,
+                    'coords': coord,
+                    'dims': slide['tile_dims']
+                })
 
         self.slides = slides
         self.tiles = tiles
         self.transform = transform
         self.mode = mode
         self.topk_k = None
-        self.mult = dataset['mult']
-        self.size = int(np.round(224 * dataset['mult']))
-        self.level = dataset['level']
 
-    def get_top_k_tiles(
+    def set_top_k_tiles(
             self,
             top_k_indices: List[int]
     ):
-        data = []
-        for idx in top_k_indices:
-            slide_idx, coords, target = self.tiles[idx]
-            data.append((slide_idx, coords, target))
-        self.topk_k = data
+        self.topk_k = [self.tiles[idx] for idx in top_k_indices]
 
     def __getitem__(self, index):
-        dataset = self.topk_k if self.mode == 'train' else self.tiles
-        slide_idx, coord, target = dataset[index]
+        if self.mode == 'train' and self.topk_k is not None:
+            tiles = self.topk_k
+        else:
+            tiles = self.tiles
 
-        slide = self.slides[slide_idx]['slide']
-        img = slide.read_region(coord, self.level, (self.size, self.size))\
+        tile = tiles[index]
+        slide = self.slides[tile['image_id']]
+
+        img = slide['slide'].read_region(
+            location=tile['coords'],
+            level=0,
+            size=tile['dims'])\
             .convert('RGB')
-        if self.mult != 1:
-            img = img.resize((self.size, self.size), Image.BILINEAR)
+
         if self.transform is not None:
             img = self.transform(img)
-        return img, target
+
+        return img, slide['target']
 
     def __len__(self):
-        if self.mode == 'train':
+        if self.mode == 'train' and self.topk_k is not None:
             return len(self.topk_k)
         else:
             return len(self.tiles)
@@ -86,7 +77,7 @@ def get_dataloader(dataset_path: Union[str, Path],
                    mode,
                    batch_size=512,
                    n_workers=4):
-    # normalization
+    # TODO use imagenet stats?
     normalize = transforms.Normalize(
         mean=[0.5, 0.5, 0.5], std=[0.1, 0.1, 0.1])
     trans = transforms.Compose([transforms.ToTensor(), normalize])
@@ -97,5 +88,5 @@ def get_dataloader(dataset_path: Union[str, Path],
     data_loader = torch.utils.data.DataLoader(
         dset,
         batch_size=batch_size, shuffle=mode == 'train',
-        num_workers=n_workers, pin_memory=False)
+        num_workers=n_workers)
     return data_loader
