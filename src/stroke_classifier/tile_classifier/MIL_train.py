@@ -89,6 +89,7 @@ def main():
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
         if args.mlflow_tag:
             mlflow.set_tag('notes', args.mlflow_tag)
+        mlflow.set_experiment('mayo_clinic_stroke_kaggle')
 
     train_slide_idxs = np.array(
         [train_inference_loader.dataset.slides[x['image_id']]['index']
