@@ -43,6 +43,7 @@ parser.add_argument('--k', default=1, type=int,
 parser.add_argument('--mlflow_tracking_uri')
 parser.add_argument('--learning_rate', default=1e-4, type=float)
 parser.add_argument('--weight_decay', default=1e-4, type=float)
+parser.add_argument('--mlflow_tag')
 
 
 def main():
@@ -86,6 +87,8 @@ def main():
     track_using_mflow = args.mlflow_tracking_uri is not None
     if track_using_mflow:
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
+        if args.mlflow_tag:
+            mlflow.set_tag('notes', args.mlflow_tag)
 
     train_slide_idxs = np.array(
         [train_inference_loader.dataset.slides[x['image_id']]['index']
