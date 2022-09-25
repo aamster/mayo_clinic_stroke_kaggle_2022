@@ -106,7 +106,7 @@ def main():
     for epoch in range(args.nepochs):
         print(f'Epoch {epoch+1}')
         print('===============')
-        probs, train_error = get_inference_for_epoch(
+        train_tile_probs, train_error = get_inference_for_epoch(
             data_loader=train_inference_loader,
             model=model,
             slide_idxs=train_slide_idxs,
@@ -115,7 +115,7 @@ def main():
         )
         topk = get_topk_tiles(
             slide_indices=train_slide_idxs,
-            tile_probs=probs,
+            tile_probs=train_tile_probs,
             k=args.k)
         train_loader.dataset.set_top_k_tiles(top_k_indices=topk)
         train_loss = train(train_loader, model, criterion, optimizer)
