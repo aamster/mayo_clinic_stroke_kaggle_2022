@@ -44,6 +44,7 @@ parser.add_argument('--mlflow_tracking_uri')
 parser.add_argument('--learning_rate', default=1e-4, type=float)
 parser.add_argument('--weight_decay', default=1e-4, type=float)
 parser.add_argument('--mlflow_tag')
+parser.add_argument('--early_stopping_patience', default=10, type=int)
 
 
 def main():
@@ -106,6 +107,9 @@ def main():
         print(f'Number of tiles in val: {len(val_loader.dataset.tiles)}')
 
     best_metric = float('inf')
+    early_stopping_patience = args.early_stopping_patience
+    time_since_best_epoch = 0
+    best_epoch = 0
 
     for epoch in range(args.nepochs):
         print(f'Epoch {epoch+1}')
@@ -160,15 +164,23 @@ def main():
             # Save best model
             err = val_error['log_loss']
             if err < best_metric:
+                time_since_best_epoch = 0
+                best_epoch = epoch
                 best_metric = err
                 obj = {
                     'epoch': epoch+1,
                     'state_dict': model.state_dict(),
-                    'best_err': best_metric,
+                    'val_log_loss': best_metric,
                     'optimizer': optimizer.state_dict()
                 }
                 torch.save(obj, os.path.join(args.output,
                                              'checkpoint_best.pth'))
+            else:
+                time_since_best_epoch += 1
+                if time_since_best_epoch > early_stopping_patience:
+                    mlflow.set_tag('best_epoch', best_epoch)
+                    print('Stopping due to early stopping')
+                    return
 
 
 def tile_inference(loader: DataLoader, model: nn.Module,
