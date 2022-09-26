@@ -199,7 +199,8 @@ def tile_inference(loader: DataLoader, model: nn.Module,
     model.eval()
     probs = torch.FloatTensor(len(loader.dataset), 2)
     with torch.no_grad():
-        for i, input in tqdm(enumerate(loader), desc='tile inference'):
+        for i, input in tqdm(enumerate(loader), desc='tile inference',
+                             total=len(loader)):
             input, _ = input
             if torch.cuda.is_available():
                 input = input.cuda()
@@ -213,7 +214,8 @@ def tile_inference(loader: DataLoader, model: nn.Module,
 def train(loader, model, criterion, optimizer):
     model.train()
     running_loss = 0.
-    for i, (input, target) in tqdm(enumerate(loader), desc='train'):
+    for i, (input, target) in tqdm(enumerate(loader), desc='train',
+                                   total=len(loader)):
         if torch.cuda.is_available():
             input = input.cuda()
             target = target.cuda()

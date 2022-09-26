@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import Union, List
 
+import numpy as np
 from openslide import OpenSlide
 import torch
 from torch.utils import data
@@ -61,6 +62,8 @@ class MILdataset(data.Dataset):
                 size=tile['dims'])\
                 .convert('RGB')
 
+            img = np.array(img)
+
             if self.transform is not None:
                 img = self.transform(img)
 
@@ -85,10 +88,11 @@ def get_dataloader(dataset_path: Union[str, Path],
             iaa.Fliplr(p=0.5),
             iaa.Flipud(p=0.5),
         ]).augment_image,
+        np.copy,
         transforms.ToTensor(),
-        # TODO use imagenet stats?
-        transforms.Normalize(
-            mean=[0.5, 0.5, 0.5], std=[0.1, 0.1, 0.1])
+        # # TODO use imagenet stats?
+        # transforms.Normalize(
+        #     mean=[0.5, 0.5, 0.5], std=[0.1, 0.1, 0.1])
     ])
 
     # load data
