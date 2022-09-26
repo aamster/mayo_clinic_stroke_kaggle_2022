@@ -104,12 +104,12 @@ def main():
         })
 
     train_slide_idxs = np.array(
-        [train_inference_loader.dataset.slides[x['image_id']]['index']
-         for x in train_inference_loader.dataset.tiles])
+        [slide_idx
+         for _, _, _, slide_idx in train_inference_loader.dataset.tiles])
     if val_loader is not None:
         val_slide_idxs = np.array(
-            [val_loader.dataset.slides[x['image_id']]['index']
-             for x in val_loader.dataset.tiles])
+            [slide_idx
+             for _, _, _, slide_idx in val_loader.dataset.tiles])
     else:
         val_slide_idxs = None
 
@@ -313,7 +313,7 @@ def get_inference_for_epoch(
         pred=slide_pred,
         probs=slide_probs,
         true=np.array(
-            [v['target'] for v in data_loader.dataset.slides.values()]),
+            [target for _, target in data_loader.dataset.slides]),
         pos_loss_weight=pos_evaluation_loss_weight
     )
     error = {

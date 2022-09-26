@@ -1,4 +1,5 @@
 import json
+from collections import namedtuple
 from pathlib import Path
 from typing import Union, List
 
@@ -8,6 +9,9 @@ import torch
 from torch.utils import data
 from torchvision.transforms import transforms
 from imgaug import augmenters as iaa
+
+Slide = namedtuple('Slide', ['path', 'target'])
+Tile = namedtuple('Tile', ['image_id', 'coords', 'tile_dims', 'slide_idx'])
 
 
 class MILdataset(data.Dataset):
@@ -19,24 +23,23 @@ class MILdataset(data.Dataset):
 
         with open(dataset_path) as f:
             dataset = json.load(f)
-        slides = {}
+        slides = []
         tiles = []
         for i, slide in enumerate(dataset):
             image_id = Path(slide['slide_path']).stem
-            slides[image_id] = {
-                'path': slide['slide_path'],
-                'target': int(slide['target'] == 'LAA'),
-                'index': i
-            }
-            for coord in slide['tile_coords']:
-                tiles.append({
-                    'image_id': image_id,
-                    'coords': coord,
-                    'dims': slide['tile_dims']
-                })
+            slides.append(
+                Slide(path=slide['slide_path'],
+                      target=int(slide['target'] == 'LAA')))
 
-        self.slides = slides
-        self.tiles = tiles
+            for coord in slide['tile_coords']:
+                tiles.append(
+                    Tile(image_id=image_id,
+                         coords=tuple(coord),
+                         tile_dims=tuple(slide['tile_dims']),
+                         slide_idx=i))
+
+        self.slides = np.array(slides, dtype='object')
+        self.tiles = np.array(tiles, dtype='object')
         self.transform = transform
         self.mode = mode
         self.topk_k = None
@@ -53,13 +56,14 @@ class MILdataset(data.Dataset):
         else:
             tiles = self.tiles
 
-        tile = tiles[index]
+        image_id, coords, tile_tims, slide_idx = tiles[index]
+        slide_path, target = self.slides[slide_idx]
 
-        with OpenSlide(self.slides[tile['image_id']]['path']) as slide:
+        with OpenSlide(slide_path) as slide:
             img = slide.read_region(
-                location=tile['coords'],
+                location=coords,
                 level=0,
-                size=tile['dims'])\
+                size=tile_tims)\
                 .convert('RGB')
 
             img = np.array(img)
@@ -67,7 +71,7 @@ class MILdataset(data.Dataset):
             if self.transform is not None:
                 img = self.transform(img)
 
-            return img, self.slides[tile['image_id']]['target']
+            return img, target
 
     def __len__(self):
         if self.mode == 'train' and self.topk_k is not None:
