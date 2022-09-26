@@ -22,7 +22,7 @@ class MILdataset(data.Dataset):
         for i, slide in enumerate(dataset):
             image_id = Path(slide['slide_path']).stem
             slides[image_id] = {
-                'slide': OpenSlide(slide['slide_path']),
+                'slide': slide['slide_path'],
                 'path:': slide['slide_path'],
                 'target': int(slide['target'] == 'LAA'),
                 'index': i
@@ -53,18 +53,18 @@ class MILdataset(data.Dataset):
             tiles = self.tiles
 
         tile = tiles[index]
-        slide = self.slides[tile['image_id']]
 
-        img = slide['slide'].read_region(
-            location=tile['coords'],
-            level=0,
-            size=tile['dims'])\
-            .convert('RGB')
+        with OpenSlide(self.slides[tile['image_id']]['slide']) as slide:
+            img = slide.read_region(
+                location=tile['coords'],
+                level=0,
+                size=tile['dims'])\
+                .convert('RGB')
 
-        if self.transform is not None:
-            img = self.transform(img)
+            if self.transform is not None:
+                img = self.transform(img)
 
-        return img, slide['target']
+            return img, self.slides[tile['image_id']]['target']
 
     def __len__(self):
         if self.mode == 'train' and self.topk_k is not None:
