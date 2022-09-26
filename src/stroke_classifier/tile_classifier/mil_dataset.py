@@ -78,11 +78,13 @@ def get_dataloader(dataset_path: Union[str, Path],
                    batch_size=512,
                    n_workers=4):
     trans = transforms.Compose([
-        iaa.Rotate(
-            rotate=[0, -90, -180, -270, 270, 180, 90]
-        ),
-        iaa.Fliplr(p=0.5),
-        iaa.Flipud(p=0.5),
+        iaa.Sequential([
+            iaa.Rotate(
+                rotate=[0, -90, -180, -270, 270, 180, 90]
+            ),
+            iaa.Fliplr(p=0.5),
+            iaa.Flipud(p=0.5),
+        ]).augment_image,
         transforms.ToTensor(),
         # TODO use imagenet stats?
         transforms.Normalize(
