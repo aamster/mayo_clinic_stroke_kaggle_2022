@@ -208,6 +208,8 @@ def tile_inference(loader: DataLoader, model: nn.Module,
             start_idx = i * batch_size
             end_idx = i * batch_size + input.size(0)
             probs[start_idx:end_idx] = output.detach().clone()
+
+            torch.cuda.empty_cache()
     return probs.cpu().numpy()
 
 

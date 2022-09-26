@@ -95,8 +95,8 @@ def get_dataloader(dataset_path: Union[str, Path],
         np.copy,
         transforms.ToTensor(),
         # # TODO use imagenet stats?
-        # transforms.Normalize(
-        #     mean=[0.5, 0.5, 0.5], std=[0.1, 0.1, 0.1])
+        transforms.Normalize(
+            mean=[0.5, 0.5, 0.5], std=[0.1, 0.1, 0.1])
     ])
 
     # load data
