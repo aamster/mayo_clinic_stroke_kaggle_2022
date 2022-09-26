@@ -22,8 +22,7 @@ class MILdataset(data.Dataset):
         for i, slide in enumerate(dataset):
             image_id = Path(slide['slide_path']).stem
             slides[image_id] = {
-                'slide': slide['slide_path'],
-                'path:': slide['slide_path'],
+                'path': slide['slide_path'],
                 'target': int(slide['target'] == 'LAA'),
                 'index': i
             }
@@ -54,7 +53,7 @@ class MILdataset(data.Dataset):
 
         tile = tiles[index]
 
-        with OpenSlide(self.slides[tile['image_id']]['slide']) as slide:
+        with OpenSlide(self.slides[tile['image_id']]['path']) as slide:
             img = slide.read_region(
                 location=tile['coords'],
                 level=0,
