@@ -93,6 +93,16 @@ def main():
         if args.mlflow_tag:
             mlflow.set_tag('notes', args.mlflow_tag)
 
+        mlflow.log_params({
+            'architecture': 'resnet34',
+            'learning_rate': args.learning_rate,
+            'weight_decay': args.weight_decay,
+            'k': args.k,
+            'pos_train_loss_weight': args.pos_train_loss_weight,
+            'batch_size': args.batch_size,
+            'early_stopping_patience': args.early_stopping_patience
+        })
+
     train_slide_idxs = np.array(
         [train_inference_loader.dataset.slides[x['image_id']]['index']
          for x in train_inference_loader.dataset.tiles])
