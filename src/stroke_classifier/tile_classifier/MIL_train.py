@@ -11,9 +11,9 @@ import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import torchvision.models as models
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from stroke_classifier.tile_classifier.mil_dataset import get_dataloader
-from util.misc_utils import timeit
 
 parser = argparse.ArgumentParser(
     description='MIL-nature-medicine-2019 tile classifier training script')
@@ -199,7 +199,7 @@ def tile_inference(loader: DataLoader, model: nn.Module,
     model.eval()
     probs = torch.FloatTensor(len(loader.dataset), 2)
     with torch.no_grad():
-        for i, input in enumerate(loader):
+        for i, input in tqdm(enumerate(loader), desc='tile inference'):
             input, _ = input
             if torch.cuda.is_available():
                 input = input.cuda()
@@ -210,11 +210,10 @@ def tile_inference(loader: DataLoader, model: nn.Module,
     return probs.cpu().numpy()
 
 
-@timeit
 def train(loader, model, criterion, optimizer):
     model.train()
     running_loss = 0.
-    for i, (input, target) in enumerate(loader):
+    for i, (input, target) in tqdm(enumerate(loader), desc='train'):
         if torch.cuda.is_available():
             input = input.cuda()
             target = target.cuda()
@@ -295,7 +294,6 @@ def calc_weighted_log_loss_kaggle(
     return - (res / weights.sum())
 
 
-@timeit
 def get_inference_for_epoch(
         data_loader: DataLoader,
         model: nn.Module,
