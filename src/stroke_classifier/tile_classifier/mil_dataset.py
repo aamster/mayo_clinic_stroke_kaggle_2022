@@ -6,6 +6,7 @@ from openslide import OpenSlide
 import torch
 from torch.utils import data
 from torchvision.transforms import transforms
+from imgaug import augmenters as iaa
 
 
 class MILdataset(data.Dataset):
@@ -76,10 +77,17 @@ def get_dataloader(dataset_path: Union[str, Path],
                    mode,
                    batch_size=512,
                    n_workers=4):
-    # TODO use imagenet stats?
-    normalize = transforms.Normalize(
-        mean=[0.5, 0.5, 0.5], std=[0.1, 0.1, 0.1])
-    trans = transforms.Compose([transforms.ToTensor(), normalize])
+    trans = transforms.Compose([
+        iaa.Rotate(
+            rotate=[0, -90, -180, -270, 270, 180, 90]
+        ),
+        iaa.Fliplr(p=0.5),
+        iaa.Flipud(p=0.5),
+        transforms.ToTensor(),
+        # TODO use imagenet stats?
+        transforms.Normalize(
+            mean=[0.5, 0.5, 0.5], std=[0.1, 0.1, 0.1])
+    ])
 
     # load data
     dset = MILdataset(dataset_path=dataset_path, transform=trans, mode=mode)
