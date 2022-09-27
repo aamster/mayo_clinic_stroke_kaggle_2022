@@ -144,7 +144,7 @@ def main():
             mlflow.log_metric(key='train_tile_loss', value=train_loss,
                               step=epoch)
             mlflow.log_metric(key='train_slide_loss',
-                              value=train_error['loss'],
+                              value=train_error['log_loss'],
                               step=epoch)
 
         if val_loader is not None and (epoch + 1) % args.test_every == 0:
@@ -162,14 +162,11 @@ def main():
 
             if track_using_mflow:
                 mlflow.log_metric(key='val_slide_loss',
-                                  value=val_error['loss'],
+                                  value=val_error['log_loss'],
                                   step=epoch)
                 mlflow.log_metric(key='val_fpr', value=val_error['fpr'],
                                   step=epoch)
                 mlflow.log_metric(key='val_fnr', value=val_error['fnr'],
-                                  step=epoch)
-                mlflow.log_metric(key='val_err',
-                                  value=(val_error['fpr']+val_error['fnr'])/2,
                                   step=epoch)
 
             # Save best model
