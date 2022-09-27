@@ -70,7 +70,8 @@ class MILdataset(data.Dataset):
             dataset = json.load(f)
         slides = []
         tiles = []
-        for i, slide in enumerate(dataset):
+        slide_idx = 0
+        for slide in dataset:
             image_id = Path(slide['slide_path']).stem
 
             tile_coords = slide['tile_coords']
@@ -86,11 +87,12 @@ class MILdataset(data.Dataset):
                     Tile(image_id=image_id,
                          coords=tuple(coord),
                          tile_dims=tuple(slide['tile_dims']),
-                         slide_idx=i))
+                         slide_idx=slide_idx))
             if len(tile_coords) > 0:
                 slides.append(
                     Slide(path=slide['slide_path'],
                           target=int(slide['target'] == 'LAA')))
+                slide_idx += 1
 
         self.slides = np.array(slides, dtype='object')
         self.tiles = np.array(tiles, dtype='object')
