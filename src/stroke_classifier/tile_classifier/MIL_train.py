@@ -45,6 +45,7 @@ parser.add_argument('--learning_rate', default=1e-4, type=float)
 parser.add_argument('--weight_decay', default=1e-4, type=float)
 parser.add_argument('--mlflow_tag')
 parser.add_argument('--early_stopping_patience', default=10, type=int)
+parser.add_argument('--train_inference_downsample', default=None, type=float)
 
 
 def main():
@@ -103,16 +104,6 @@ def main():
             'early_stopping_patience': args.early_stopping_patience
         })
 
-    train_slide_idxs = np.array(
-        [slide_idx
-         for _, _, _, slide_idx in train_inference_loader.dataset.tiles])
-    if val_loader is not None:
-        val_slide_idxs = np.array(
-            [slide_idx
-             for _, _, _, slide_idx in val_loader.dataset.tiles])
-    else:
-        val_slide_idxs = None
-
     print(f'Number of tiles in train: {len(train_loader.dataset.tiles)}')
     if val_loader is not None:
         print(f'Number of tiles in val: {len(val_loader.dataset.tiles)}')
@@ -125,18 +116,23 @@ def main():
     for epoch in range(args.nepochs):
         print(f'Epoch {epoch+1}')
         print('===============')
+        if args.train_inference_downsample is not None:
+            train_inference_loader.dataset.construct_dataset(
+                downsample=args.train_inference_downsample
+            )
         train_tile_probs, train_error = get_inference_for_epoch(
             data_loader=train_inference_loader,
             model=model,
-            slide_idxs=train_slide_idxs,
             batch_size=args.batch_size,
             pos_evaluation_loss_weight=args.pos_evaluation_loss_weight
         )
         topk = get_topk_tiles(
-            slide_indices=train_slide_idxs,
+            slide_indices=train_inference_loader.dataset.slide_idxs,
             tile_probs=train_tile_probs,
             k=args.k)
-        train_loader.dataset.set_top_k_tiles(top_k_indices=topk)
+        train_loader.dataset.set_top_k_tiles(
+            tiles=train_inference_loader.dataset.tiles[topk]
+        )
         train_loss = train(train_loader, model, criterion, optimizer)
         print(f'Training\tEpoch: [{epoch+1}/{args.nepochs}]\t'
               f'Tile Loss: {train_loss}')
@@ -151,7 +147,6 @@ def main():
             _, val_error = get_inference_for_epoch(
                 data_loader=val_loader,
                 model=model,
-                slide_idxs=val_slide_idxs,
                 batch_size=args.batch_size,
                 pos_evaluation_loss_weight=args.pos_evaluation_loss_weight
             )
@@ -298,7 +293,6 @@ def get_inference_for_epoch(
         data_loader: DataLoader,
         model: nn.Module,
         batch_size: int,
-        slide_idxs: np.ndarray,
         pos_evaluation_loss_weight=0.5
 ) -> Tuple[np.ndarray, Dict]:
     tile_probs = tile_inference(
@@ -306,7 +300,8 @@ def get_inference_for_epoch(
         model=model,
         batch_size=batch_size)
     slide_probs, slide_pred = slide_inference(
-        slide_indices=slide_idxs, tile_probs=tile_probs)
+        slide_indices=data_loader.dataset.slide_idxs,
+        tile_probs=tile_probs)
     fpr, fnr, log_loss = calc_err(
         pred=slide_pred,
         probs=slide_probs,

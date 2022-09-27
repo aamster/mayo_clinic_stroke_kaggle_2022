@@ -1,7 +1,7 @@
 import json
 from collections import namedtuple
 from pathlib import Path
-from typing import Union, List
+from typing import Union, List, Optional
 
 import numpy as np
 from openslide import OpenSlide
@@ -21,34 +21,20 @@ class MILdataset(data.Dataset):
         if mode not in valid_modes:
             raise ValueError(f'Mode must be one of {valid_modes}. Got {mode}')
 
-        with open(dataset_path) as f:
-            dataset = json.load(f)
-        slides = []
-        tiles = []
-        for i, slide in enumerate(dataset):
-            image_id = Path(slide['slide_path']).stem
-            slides.append(
-                Slide(path=slide['slide_path'],
-                      target=int(slide['target'] == 'LAA')))
-
-            for coord in slide['tile_coords']:
-                tiles.append(
-                    Tile(image_id=image_id,
-                         coords=tuple(coord),
-                         tile_dims=tuple(slide['tile_dims']),
-                         slide_idx=i))
-
-        self.slides = np.array(slides, dtype='object')
-        self.tiles = np.array(tiles, dtype='object')
+        self._dataset_path = dataset_path
+        self.slides = None
+        self.tiles = None
+        self.slide_idxs = None
+        self.construct_dataset()
         self.transform = transform
         self.mode = mode
         self.topk_k = None
 
     def set_top_k_tiles(
             self,
-            top_k_indices: List[int]
+            tiles: np.ndarray
     ):
-        self.topk_k = [self.tiles[idx] for idx in top_k_indices]
+        self.topk_k = tiles
 
     def __getitem__(self, index):
         if self.mode == 'train' and self.topk_k is not None:
@@ -78,6 +64,37 @@ class MILdataset(data.Dataset):
             return len(self.topk_k)
         else:
             return len(self.tiles)
+
+    def construct_dataset(self, downsample: Optional[float] = None):
+        with open(self._dataset_path) as f:
+            dataset = json.load(f)
+        slides = []
+        tiles = []
+        for i, slide in enumerate(dataset):
+            image_id = Path(slide['slide_path']).stem
+            slides.append(
+                Slide(path=slide['slide_path'],
+                      target=int(slide['target'] == 'LAA')))
+
+            tile_coords = slide['tile_coords']
+            if downsample is not None:
+                tile_coords = np.array(tile_coords)
+                idxs = np.arange(len(tile_coords))
+                np.random.shuffle(idxs)
+                tile_coords = \
+                    tile_coords[idxs[:int(downsample * len(tile_coords))]]
+
+            for coord in tile_coords:
+                tiles.append(
+                    Tile(image_id=image_id,
+                         coords=tuple(coord),
+                         tile_dims=tuple(slide['tile_dims']),
+                         slide_idx=i))
+
+        self.slides = np.array(slides, dtype='object')
+        self.tiles = np.array(tiles, dtype='object')
+        self.slide_idxs = np.array(
+            [slide_idx for _, _, _, slide_idx in tiles])
 
 
 def get_dataloader(dataset_path: Union[str, Path],
