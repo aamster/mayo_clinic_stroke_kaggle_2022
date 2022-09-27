@@ -84,7 +84,7 @@ def get_dataloader(dataset_path: Union[str, Path],
                    mode,
                    batch_size=512,
                    n_workers=4):
-    trans = transforms.Compose([
+    train_agumentations = [
         iaa.Sequential([
             iaa.Rotate(
                 rotate=[0, -90, -180, -270, 270, 180, 90]
@@ -92,12 +92,21 @@ def get_dataloader(dataset_path: Union[str, Path],
             iaa.Fliplr(p=0.5),
             iaa.Flipud(p=0.5),
         ]).augment_image,
-        np.copy,
+        np.copy
+    ]
+
+    all_augmentations = [
         transforms.ToTensor(),
         # # TODO use imagenet stats?
         transforms.Normalize(
             mean=[0.5, 0.5, 0.5], std=[0.1, 0.1, 0.1])
-    ])
+    ]
+
+    if mode == 'train':
+        augmentations = train_agumentations + all_augmentations
+    else:
+        augmentations = all_augmentations
+    trans = transforms.Compose(augmentations)
 
     # load data
     dset = MILdataset(dataset_path=dataset_path, transform=trans, mode=mode)
