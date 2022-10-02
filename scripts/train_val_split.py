@@ -23,7 +23,7 @@ def main():
         slide_path = Path(slide['slide_path'])
         # Update slide path to new path
         slide['slide_path'] = \
-            str(Path(f'{args.train_slides_path}') / slide_path.stem)
+            str(Path(f'{args.train_slides_path}') / slide_path.name)
 
     rng = np.random.default_rng(1234)
     idxs = np.arange(len(train_slides))
