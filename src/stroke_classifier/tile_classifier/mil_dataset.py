@@ -136,5 +136,5 @@ def get_dataloader(dataset_path: Union[str, Path],
     data_loader = torch.utils.data.DataLoader(
         dset,
         batch_size=batch_size, shuffle=mode == 'train',
-        num_workers=n_workers, pin_memory=False)
+        num_workers=n_workers, pin_memory=True)
     return data_loader
