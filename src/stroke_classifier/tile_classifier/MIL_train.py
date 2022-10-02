@@ -56,6 +56,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger()
 
+logger.info('Starting training')
 
 def main():
     args = parser.parse_args()
