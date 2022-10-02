@@ -105,7 +105,8 @@ class MILdataset(data.Dataset):
 def get_dataloader(dataset_path: Union[str, Path],
                    mode,
                    batch_size=512,
-                   n_workers=4):
+                   n_workers=4,
+                   sampler: Optional[torch.utils.data.BatchSampler] = None):
     train_agumentations = [
         iaa.Sequential([
             iaa.Rotate(
@@ -133,8 +134,15 @@ def get_dataloader(dataset_path: Union[str, Path],
     # load data
     dset = MILdataset(dataset_path=dataset_path, transform=trans, mode=mode)
 
-    data_loader = torch.utils.data.DataLoader(
-        dset,
-        batch_size=batch_size, shuffle=mode == 'train',
-        num_workers=n_workers, pin_memory=torch.cuda.is_available())
+    if sampler is not None:
+        data_loader = torch.utils.data.DataLoader(
+            dset,
+            sampler=sampler, shuffle=mode == 'train',
+            num_workers=n_workers, pin_memory=torch.cuda.is_available()
+        )
+    else:
+        data_loader = torch.utils.data.DataLoader(
+            dset,
+            batch_size=batch_size, shuffle=mode == 'train',
+            num_workers=n_workers, pin_memory=torch.cuda.is_available())
     return data_loader
