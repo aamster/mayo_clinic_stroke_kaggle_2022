@@ -104,7 +104,8 @@ def main():
             'k': args.k,
             'pos_train_loss_weight': args.pos_train_loss_weight,
             'batch_size': args.batch_size,
-            'early_stopping_patience': args.early_stopping_patience
+            'early_stopping_patience': args.early_stopping_patience,
+            'tile_dims': train_loader.dataset.tile_dims
         })
 
     print(f'Number of tiles in train: {len(train_loader.dataset.tiles)}')

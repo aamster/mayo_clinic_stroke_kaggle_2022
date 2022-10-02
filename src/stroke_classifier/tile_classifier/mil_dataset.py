@@ -25,6 +25,7 @@ class MILdataset(data.Dataset):
         self.slides = None
         self.tiles = None
         self.slide_idxs = None
+        self.tile_dims = None
         self.construct_dataset()
         self.transform = transform
         self.mode = mode
@@ -98,6 +99,7 @@ class MILdataset(data.Dataset):
         self.tiles = np.array(tiles, dtype='object')
         self.slide_idxs = np.array(
             [slide_idx for _, _, _, slide_idx in tiles])
+        self.tile_dims = tiles[0].tile_dims
 
 
 def get_dataloader(dataset_path: Union[str, Path],
