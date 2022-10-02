@@ -134,15 +134,10 @@ def get_dataloader(dataset_path: Union[str, Path],
     # load data
     dset = MILdataset(dataset_path=dataset_path, transform=trans, mode=mode)
 
-    if sampler is not None:
-        data_loader = torch.utils.data.DataLoader(
-            dset,
-            sampler=sampler, shuffle=mode == 'train',
-            num_workers=n_workers, pin_memory=torch.cuda.is_available()
-        )
-    else:
-        data_loader = torch.utils.data.DataLoader(
-            dset,
-            batch_size=batch_size, shuffle=mode == 'train',
-            num_workers=n_workers, pin_memory=torch.cuda.is_available())
+    data_loader = torch.utils.data.DataLoader(
+        dset,
+        batch_size=batch_size, shuffle=mode == 'train',
+        num_workers=n_workers, pin_memory=torch.cuda.is_available(),
+        sampler=sampler
+    )
     return data_loader
