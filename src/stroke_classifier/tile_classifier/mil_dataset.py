@@ -136,7 +136,7 @@ def get_dataloader(dataset_path: Union[str, Path],
 
     if mode == 'train':
         # Weights are for k=1 tile per slide
-        weights = [.3 if x['target'] == 'CE' else .7 for x in dset.slides]
+        weights = [.3 if target == 'CE' else .7 for _, target in dset.slides]
         sampler = WeightedRandomSampler(weights,
                                         len(weights),
                                         replacement=False)
