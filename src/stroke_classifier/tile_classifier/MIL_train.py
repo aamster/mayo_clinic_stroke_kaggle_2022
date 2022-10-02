@@ -92,9 +92,6 @@ def main():
                                     batch_size=args.batch_size,
                                     n_workers=args.workers,
                                     mode='inference')
-        val_loader.dataset.construct_dataset(
-            downsample=0.5
-        )
     else:
         val_loader = None
 
