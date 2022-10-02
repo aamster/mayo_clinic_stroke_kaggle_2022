@@ -102,7 +102,6 @@ def main():
     if track_using_mflow:
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
         mlflow.set_experiment('mayo_clinic_stroke_kaggle')
-        mlflow.set_tag('run_start', )
         if args.mlflow_tag:
             mlflow.set_tag('notes', args.mlflow_tag)
 
@@ -121,7 +120,7 @@ def main():
     if val_loader is not None:
         logger.info(f'Number of tiles in val: {len(val_loader.dataset.tiles)}')
 
-    best_metric = float('inf')
+    best_metric = -float('inf')
     early_stopping_patience = args.early_stopping_patience
     time_since_best_epoch = 0
     best_epoch = 0
@@ -176,13 +175,17 @@ def main():
                                   step=epoch)
                 mlflow.log_metric(key='val_fnr', value=val_error['fnr'],
                                   step=epoch)
+                mlflow.log_metric(
+                    key='val_acc',
+                    value=1 - ((val_error['fpr'] + val_error['fnr']) / 2),
+                    step=epoch)
 
             # Save best model
-            err = val_error['log_loss']
-            if err < best_metric:
+            acc = 1 - ((val_error['fpr'] + val_error['fnr']) / 2)
+            if acc > best_metric:
                 time_since_best_epoch = 0
                 best_epoch = epoch
-                best_metric = err
+                best_metric = acc
                 obj = {
                     'epoch': epoch+1,
                     'state_dict': model.state_dict(),
