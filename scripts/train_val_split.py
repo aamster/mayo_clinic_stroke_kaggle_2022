@@ -14,7 +14,7 @@ args = parser.parse_args()
 
 
 def main():
-    with open(args.train_tiles_meta_path) as f:
+    with open(args.train_slides_meta_path) as f:
         train_slides = json.load(f)
 
     train_slides = [x for x in train_slides if len(x['tile_coords']) > 0]
