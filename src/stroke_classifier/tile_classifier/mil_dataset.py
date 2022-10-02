@@ -134,19 +134,9 @@ def get_dataloader(dataset_path: Union[str, Path],
     # load data
     dset = MILdataset(dataset_path=dataset_path, transform=trans, mode=mode)
 
-    if mode == 'train':
-        # Weights are for k=1 tile per slide
-        weights = [.3 if target == 'CE' else .7 for _, target in dset.slides]
-        sampler = WeightedRandomSampler(weights,
-                                        len(weights),
-                                        replacement=False)
-    else:
-        sampler = None
-
     data_loader = torch.utils.data.DataLoader(
         dset,
-        batch_size=batch_size, shuffle=False,
-        num_workers=n_workers, pin_memory=torch.cuda.is_available(),
-        sampler=sampler
+        batch_size=batch_size, shuffle=mode == 'train',
+        num_workers=n_workers, pin_memory=torch.cuda.is_available()
     )
     return data_loader
