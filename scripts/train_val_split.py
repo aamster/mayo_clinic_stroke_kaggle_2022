@@ -6,6 +6,7 @@ import numpy as np
 parser = argparse.ArgumentParser()
 parser.add_argument('--train_tiles_path', required=True)
 parser.add_argument('--out_path', required=True)
+parser.add_argument('--train_frac', default=0.7, type=float)
 
 args = parser.parse_args()
 
@@ -19,7 +20,7 @@ def main():
     rng = np.random.default_rng(1234)
     idxs = np.arange(len(train_tiles))
     rng.shuffle(idxs)
-    train_frac = 0.7
+    train_frac = args.train_frac
 
     train = [train_tiles[idx] for idx in
              idxs[:int(len(train_tiles) * train_frac)]]
