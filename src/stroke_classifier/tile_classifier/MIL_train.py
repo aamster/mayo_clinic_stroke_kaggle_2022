@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Tuple, Dict
 
@@ -47,6 +48,14 @@ parser.add_argument('--mlflow_tag')
 parser.add_argument('--early_stopping_patience', default=10, type=int)
 parser.add_argument('--train_inference_downsample', default=None, type=float)
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: '
+           '%(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger()
+
 
 def main():
     args = parser.parse_args()
@@ -93,7 +102,7 @@ def main():
     if track_using_mflow:
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
         mlflow.set_experiment('mayo_clinic_stroke_kaggle')
-
+        mlflow.set_tag('run_start', )
         if args.mlflow_tag:
             mlflow.set_tag('notes', args.mlflow_tag)
 
@@ -108,9 +117,9 @@ def main():
             'tile_dims': train_loader.dataset.tile_dims
         })
 
-    print(f'Number of tiles in train: {len(train_loader.dataset.tiles)}')
+    logger.info(f'Number of tiles in train: {len(train_loader.dataset.tiles)}')
     if val_loader is not None:
-        print(f'Number of tiles in val: {len(val_loader.dataset.tiles)}')
+        logger.info(f'Number of tiles in val: {len(val_loader.dataset.tiles)}')
 
     best_metric = float('inf')
     early_stopping_patience = args.early_stopping_patience
@@ -118,8 +127,8 @@ def main():
     best_epoch = 0
 
     for epoch in range(args.nepochs):
-        print(f'Epoch {epoch+1}')
-        print('===============')
+        logger.info(f'Epoch {epoch+1}')
+        logger.info('===============')
         if args.train_inference_downsample is not None:
             train_inference_loader.dataset.construct_dataset(
                 downsample=args.train_inference_downsample
@@ -138,7 +147,7 @@ def main():
             tiles=train_inference_loader.dataset.tiles[topk]
         )
         train_loss = train(train_loader, model, criterion, optimizer)
-        print(f'Training\tEpoch: [{epoch+1}/{args.nepochs}]\t'
+        logger.info(f'Training\tEpoch: [{epoch+1}/{args.nepochs}]\t'
               f'Tile Loss: {train_loss}')
         if track_using_mflow:
             mlflow.log_metric(key='train_tile_loss', value=train_loss,
@@ -154,7 +163,7 @@ def main():
                 batch_size=args.batch_size,
                 pos_evaluation_loss_weight=args.pos_evaluation_loss_weight
             )
-            print(f'Validation\tEpoch: [{epoch+1}/{args.nepochs}]\t'
+            logger.info(f'Validation\tEpoch: [{epoch+1}/{args.nepochs}]\t'
                   f'FPR: {val_error["fpr"]}\t'
                   f'FNR: {val_error["fnr"]}\t'
                   f'Log Loss: {val_error["log_loss"]}\t')
@@ -186,7 +195,7 @@ def main():
                 time_since_best_epoch += 1
                 if time_since_best_epoch > early_stopping_patience:
                     mlflow.set_tag('best_epoch', best_epoch)
-                    print('Stopping due to early stopping')
+                    logger.info('Stopping due to early stopping')
                     return
 
 
