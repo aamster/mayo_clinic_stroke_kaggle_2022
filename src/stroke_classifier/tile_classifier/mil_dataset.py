@@ -7,6 +7,7 @@ import numpy as np
 from openslide import OpenSlide
 import torch
 from torch.utils import data
+from torch.utils.data import WeightedRandomSampler
 from torchvision.transforms import transforms
 from imgaug import augmenters as iaa
 
@@ -105,8 +106,7 @@ class MILdataset(data.Dataset):
 def get_dataloader(dataset_path: Union[str, Path],
                    mode,
                    batch_size=512,
-                   n_workers=4,
-                   sampler: Optional[torch.utils.data.BatchSampler] = None):
+                   n_workers=4):
     train_agumentations = [
         iaa.Sequential([
             iaa.Rotate(
@@ -134,9 +134,18 @@ def get_dataloader(dataset_path: Union[str, Path],
     # load data
     dset = MILdataset(dataset_path=dataset_path, transform=trans, mode=mode)
 
+    if mode == 'train':
+        # Weights are for k=1 tile per slide
+        weights = [.3 if x['target'] == 'CE' else .7 for x in dset.slides]
+        sampler = WeightedRandomSampler(weights,
+                                        len(weights),
+                                        replacement=False)
+    else:
+        sampler = None
+
     data_loader = torch.utils.data.DataLoader(
         dset,
-        batch_size=batch_size, shuffle=mode == 'train',
+        batch_size=batch_size, shuffle=False,
         num_workers=n_workers, pin_memory=torch.cuda.is_available(),
         sampler=sampler
     )
