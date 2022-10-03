@@ -57,6 +57,8 @@ logging.basicConfig(
 logger = logging.getLogger()
 
 logger.info('Starting training')
+if torch.cuda.is_available():
+    print('CUDA available')
 
 
 def main():
