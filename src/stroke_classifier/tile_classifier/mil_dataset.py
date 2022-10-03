@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Union, Optional
 
 import numpy as np
-from openslide import OpenSlide
+from tiffslide import TiffSlide
 import torch
 from torch.utils import data
 from torchvision.transforms import transforms
@@ -49,8 +49,8 @@ class MILdataset(data.Dataset):
         img = slide.read_region(
             location=coords,
             level=0,
-            size=tile_tims)\
-            .convert('RGB')
+            size=tile_tims,
+            as_array=True)
 
         if self.transform is not None:
             img = self.transform(img)
@@ -88,7 +88,8 @@ class MILdataset(data.Dataset):
                          slide_idx=slide_idx))
             if len(tile_coords) > 0:
                 slides.append(
-                    Slide(slide=OpenSlide(slide['slide_path']),
+                    Slide(slide=TiffSlide(
+                        slide['slide_path']),
                           target=int(slide['target'] == 'LAA')))
                 slide_idx += 1
 
@@ -104,7 +105,6 @@ def get_dataloader(dataset_path: Union[str, Path],
                    batch_size=512,
                    n_workers=4):
     train_agumentations = [
-        np.asarray,
         iaa.Sequential([
             iaa.Rotate(
                 rotate=[0, -90, -180, -270, 270, 180, 90]
