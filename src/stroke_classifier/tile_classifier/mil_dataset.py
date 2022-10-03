@@ -10,7 +10,7 @@ from torch.utils import data
 from torchvision.transforms import transforms
 from imgaug import augmenters as iaa
 
-Slide = namedtuple('Slide', ['path', 'target'])
+Slide = namedtuple('Slide', ['slide', 'target'])
 Tile = namedtuple('Tile', ['image_id', 'coords', 'tile_dims', 'slide_idx'])
 
 
@@ -44,17 +44,16 @@ class MILdataset(data.Dataset):
             tiles = self.tiles
 
         image_id, coords, tile_tims, slide_idx = tiles[index]
-        slide_path, target = self.slides[slide_idx]
+        slide, target = self.slides[slide_idx]
 
-        with OpenSlide(slide_path) as slide:
-            img = slide.read_region(
-                location=coords,
-                level=0,
-                size=tile_tims)\
-                .convert('RGB')
+        img = slide.read_region(
+            location=coords,
+            level=0,
+            size=tile_tims)\
+            .convert('RGB')
 
-            if self.transform is not None:
-                img = self.transform(img)
+        if self.transform is not None:
+            img = self.transform(img)
 
             return img, target
 
@@ -89,7 +88,7 @@ class MILdataset(data.Dataset):
                          slide_idx=slide_idx))
             if len(tile_coords) > 0:
                 slides.append(
-                    Slide(path=slide['slide_path'],
+                    Slide(slide=OpenSlide(slide['slide_path']),
                           target=int(slide['target'] == 'LAA')))
                 slide_idx += 1
 
