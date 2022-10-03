@@ -5,6 +5,8 @@ from typing import Tuple, Dict
 import mlflow
 import numpy as np
 import argparse
+
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -14,7 +16,8 @@ import torchvision.models as models
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from stroke_classifier.tile_classifier.mil_dataset import get_dataloader
+from stroke_classifier.tile_classifier.mil_dataset import get_dataloader, \
+    MILdataset
 
 parser = argparse.ArgumentParser(
     description='MIL-nature-medicine-2019 tile classifier training script')
@@ -140,15 +143,17 @@ def main():
             pos_evaluation_loss_weight=args.pos_evaluation_loss_weight
         )
         topk = get_topk_tiles(
-            slide_indices=train_inference_loader.dataset.slide_idxs,
+            dataset=train_inference_loader.dataset,
             tile_probs=train_tile_probs,
-            k=args.k)
+            mode='train'
+        )
         train_loader.dataset.set_top_k_tiles(
             tiles=train_inference_loader.dataset.tiles[topk]
         )
         train_loss = train(train_loader, model, criterion, optimizer)
+        train_acc = 1 - ((train_error['fpr'] + train_error['fnr']) / 2)
         logger.info(f'Training\tEpoch: [{epoch+1}/{args.nepochs}]\t'
-              f'Tile Loss: {train_loss}')
+              f'Tile Loss: {train_loss}\tTrain Accuracy: {train_acc:.3f}')
         if track_using_mflow:
             mlflow.log_metric(key='train_tile_loss', value=train_loss,
                               step=epoch)
@@ -244,7 +249,6 @@ def calc_err(
         true: np.ndarray,
         pos_loss_weight=0.5
 ):
-    pred = np.argmax(pred, axis=1)
     tp = ((pred == 1) & (true == 1)).sum()
     fp = ((pred == 1) & (true == 0)).sum()
     fn = ((pred == 0) & (true == 1)).sum()
@@ -260,30 +264,40 @@ def calc_err(
     return fpr, fnr, weighted_log_loss
 
 
-def get_topk_tiles(slide_indices, tile_probs, k=1):
-    """Gets top k tiles from each slide by probability of positive class"""
-    order = np.lexsort((tile_probs[:, 1], slide_indices))
-    slide_indices = slide_indices[order]
-    index = np.empty(len(slide_indices), 'bool')
-    index[-k:] = True
-    index[:-k] = slide_indices[k:] != slide_indices[:-k]
-    return list(order[index])
+def get_topk_tiles(dataset: MILdataset, tile_probs, mode='train'):
+    """If mode=='train', gets top 1 tile for the class of the slide.
+       If mode=='inference', gets top probability for each class for each
+       slide
+    """
+    if mode == 'train':
+        targets = ['LAA' if target == 1 else 'CE'
+                   for _, target in dataset.slides]
+    else:
+        targets = None
+    df = pd.DataFrame(tile_probs, columns=['CE', 'LAA'])
+    df['slide'] = dataset.slide_idxs
+
+    if mode == 'train':
+        res = df.groupby('slide').apply(
+            lambda x: x.index[x[targets[x.name]].argmax()])
+        return res.values.tolist()
+    else:
+        res = np.zeros((len(dataset.slides), 2))
+        for i, target in enumerate(('CE', 'LAA')):
+            max_p = df.groupby('slide')[target].max()
+            res[:, i] = max_p
+        return res
 
 
 def slide_inference(
-        slide_indices,
-        tile_probs,
-        classification_threshold=0.5
+        dataset: MILdataset,
+        tile_probs
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Gets classifications for each slide by treating tile with max
-    probability as the slide-level prediction"""
-    n_slides = len(np.unique(slide_indices))
-    slide_probs = np.zeros((n_slides, 2))
-    argmax_tiles = get_topk_tiles(
-        slide_indices=slide_indices, tile_probs=tile_probs)
-    slide_probs[slide_indices[argmax_tiles]] = tile_probs[argmax_tiles]
-    pred = [x >= classification_threshold for x in slide_probs]
-    pred = np.array(pred).astype(int)
+    """Gets classifications for each slide by choosing the max of tile probs
+    for each class"""
+    slide_probs = get_topk_tiles(
+        dataset=dataset, tile_probs=tile_probs, mode='inference')
+    pred = slide_probs.argmax(axis=1)
 
     return slide_probs, pred
 
@@ -317,8 +331,9 @@ def get_inference_for_epoch(
         model=model,
         batch_size=batch_size)
     slide_probs, slide_pred = slide_inference(
-        slide_indices=data_loader.dataset.slide_idxs,
-        tile_probs=tile_probs)
+        dataset=data_loader.dataset,
+        tile_probs=tile_probs,
+    )
     fpr, fnr, log_loss = calc_err(
         pred=slide_pred,
         probs=slide_probs,
