@@ -1,13 +1,12 @@
 import json
 from collections import namedtuple
 from pathlib import Path
-from typing import Union, List, Optional
+from typing import Union, Optional
 
 import numpy as np
 from openslide import OpenSlide
 import torch
 from torch.utils import data
-from torch.utils.data import WeightedRandomSampler
 from torchvision.transforms import transforms
 from imgaug import augmenters as iaa
 
@@ -53,8 +52,6 @@ class MILdataset(data.Dataset):
                 level=0,
                 size=tile_tims)\
                 .convert('RGB')
-
-            img = np.array(img)
 
             if self.transform is not None:
                 img = self.transform(img)
@@ -108,6 +105,7 @@ def get_dataloader(dataset_path: Union[str, Path],
                    batch_size=512,
                    n_workers=4):
     train_agumentations = [
+        np.asarray,
         iaa.Sequential([
             iaa.Rotate(
                 rotate=[0, -90, -180, -270, 270, 180, 90]
