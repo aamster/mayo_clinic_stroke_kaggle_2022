@@ -145,7 +145,8 @@ def main():
         topk = get_topk_tiles(
             dataset=train_inference_loader.dataset,
             tile_probs=train_tile_probs,
-            mode='train'
+            mode='train',
+            k=args.k
         )
         train_loader.dataset.set_top_k_tiles(
             tiles=train_inference_loader.dataset.tiles[topk]
@@ -264,28 +265,22 @@ def calc_err(
     return fpr, fnr, weighted_log_loss
 
 
-def get_topk_tiles(dataset: MILdataset, tile_probs, mode='train'):
+def get_topk_tiles(dataset: MILdataset, tile_probs, mode='train', k=1):
     """If mode=='train', gets top 1 tile for the class of the slide.
        If mode=='inference', gets top probability for each class for each
        slide
     """
-    if mode == 'train':
-        targets = ['LAA' if target == 1 else 'CE'
-                   for _, target in dataset.slides]
-    else:
-        targets = None
     df = pd.DataFrame(tile_probs, columns=['CE', 'LAA'])
     df['slide'] = dataset.slide_idxs
 
     if mode == 'train':
         res = df.groupby('slide').apply(
-            lambda x: x.index[x[targets[x.name]].argmax()])
-        return res.values.tolist()
+            lambda x: pd.Series(x.index[x['LAA'].argsort()[-k:]]))
+        return res.values.flatten().tolist()
     else:
-        res = np.zeros((len(dataset.slides), 2))
-        for i, target in enumerate(('CE', 'LAA')):
-            max_p = df.groupby('slide')[target].max()
-            res[:, i] = max_p
+        res = df.groupby('slide')['LAA'].max()
+        res = pd.DataFrame({'CE': 1 - res, 'LAA': res})
+        res = res.values
         return res
 
 
@@ -309,7 +304,6 @@ def calc_weighted_log_loss_kaggle(
 ):
     """Calculates weighted log loss where the average loss from each class
     is used in a weighted average"""
-    probs /= probs.sum(axis=1).reshape(probs.shape[0], 1)
     log_probs = np.log(probs)
     weights = np.array([1-pos_weight, pos_weight])
 
