@@ -10,3 +10,4 @@ setuptools~=58.0.4
 imgaug~=0.4.0
 scikit-image~=0.16.2
 torch~=1.10.2
+tiffslide
