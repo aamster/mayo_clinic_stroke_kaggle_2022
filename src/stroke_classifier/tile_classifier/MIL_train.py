@@ -309,6 +309,7 @@ def calc_weighted_log_loss_kaggle(
 ):
     """Calculates weighted log loss where the average loss from each class
     is used in a weighted average"""
+    probs /= probs.sum(axis=1).reshape(probs.shape[0], 1)
     log_probs = np.log(probs)
     weights = np.array([1-pos_weight, pos_weight])
 
