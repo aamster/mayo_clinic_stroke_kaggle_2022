@@ -75,7 +75,7 @@ def main():
                         help='csv file mapping image_id to patient_id')
     args = parser.parse_args()
 
-    model = models.resnet34(True)
+    model = models.resnet34(False)
     model.fc = nn.Linear(model.fc.in_features, 2)
 
     checkpoint = torch.load(args.checkpoint_path)

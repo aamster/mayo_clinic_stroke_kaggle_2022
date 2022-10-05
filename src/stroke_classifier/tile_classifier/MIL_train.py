@@ -17,8 +17,7 @@ from tqdm import tqdm
 
 from stroke_classifier.tile_classifier.inference import tile_inference, \
     slide_inference
-from stroke_classifier.tile_classifier.mil_dataset import get_dataloader, \
-    MILdataset
+from stroke_classifier.tile_classifier.mil_dataset import get_dataloader
 
 parser = argparse.ArgumentParser(
     description='MIL-nature-medicine-2019 tile classifier training script')
