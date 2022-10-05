@@ -49,7 +49,7 @@ parser.add_argument('--learning_rate', default=1e-4, type=float)
 parser.add_argument('--weight_decay', default=1e-4, type=float)
 parser.add_argument('--mlflow_tag')
 parser.add_argument('--early_stopping_patience', default=10, type=int)
-parser.add_argument('--train_inference_downsample', default=None, type=float)
+parser.add_argument('--train_downsample', default=None, type=float)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -132,26 +132,22 @@ def main():
     for epoch in range(args.nepochs):
         logger.info(f'Epoch {epoch+1}')
         logger.info('===============')
-        if args.train_inference_downsample is not None:
-            train_inference_loader.dataset.construct_dataset(
-                downsample=args.train_inference_downsample
+        if args.train_downsample is not None:
+            train_loader.dataset.construct_dataset(
+                downsample=args.train_downsample
             )
-        train_tile_probs, train_error = get_inference_for_epoch(
-            data_loader=train_inference_loader,
-            model=model,
-            batch_size=args.batch_size,
-            pos_evaluation_loss_weight=args.pos_evaluation_loss_weight
-        )
-        topk = get_topk_tiles(
-            dataset=train_inference_loader.dataset,
-            tile_probs=train_tile_probs,
-            mode='train',
-            k=args.k
-        )
-        train_loader.dataset.set_top_k_tiles(
-            tiles=train_inference_loader.dataset.tiles[topk]
-        )
+            train_inference_loader.dataset.slides = \
+                train_loader.dataset.slides
+            train_inference_loader.dataset.tiles = \
+                train_loader.dataset.tiles
+            train_inference_loader.dataset.slide_idxs = \
+                train_loader.dataset.slide_idxs
         train_loss = train(train_loader, model, criterion, optimizer)
+        train_error = get_inference_for_epoch(
+            data_loader=train_inference_loader,
+            batch_size=args.batch_size,
+            model=model
+        )
         train_acc = 1 - ((train_error['fpr'] + train_error['fnr']) / 2)
         logger.info(f'Training\tEpoch: [{epoch+1}/{args.nepochs}]\t'
               f'Tile Loss: {train_loss}\tTrain Accuracy: {train_acc:.3f}')
@@ -163,7 +159,7 @@ def main():
                               step=epoch)
 
         if val_loader is not None and (epoch + 1) % args.test_every == 0:
-            _, val_error = get_inference_for_epoch(
+            val_error = get_inference_for_epoch(
                 data_loader=val_loader,
                 model=model,
                 batch_size=args.batch_size,
@@ -265,23 +261,19 @@ def calc_err(
     return fpr, fnr, weighted_log_loss
 
 
-def get_topk_tiles(dataset: MILdataset, tile_probs, mode='train', k=1):
-    """If mode=='train', gets top 1 tile for the class of the slide.
-       If mode=='inference', gets top probability for each class for each
-       slide
+def get_slide_mean(dataset: MILdataset, tile_probs):
+    """Gets mean score over all tiles in a slide for all classes
     """
     df = pd.DataFrame(tile_probs, columns=['CE', 'LAA'])
     df['slide'] = dataset.slide_idxs
 
-    if mode == 'train':
-        res = df.groupby('slide').apply(
-            lambda x: pd.Series(x.index[x['LAA'].argsort()[-k:]]))
-        return res.values.flatten().tolist()
-    else:
-        res = df.groupby('slide')['LAA'].max()
-        res = pd.DataFrame({'CE': 1 - res, 'LAA': res})
-        res = res.values
-        return res
+    laa_mean = df.groupby('slide')['LAA'].mean()
+    ce_mean = df.groupby('slide')['CE'].mean()
+    res = pd.DataFrame({'CE': ce_mean, 'LAA': laa_mean})
+    res = res.values
+    res /= res.sum(axis=1).reshape(res.shape[0], 1)
+
+    return res
 
 
 def slide_inference(
@@ -290,8 +282,8 @@ def slide_inference(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Gets classifications for each slide by choosing the max of tile probs
     for each class"""
-    slide_probs = get_topk_tiles(
-        dataset=dataset, tile_probs=tile_probs, mode='inference')
+    slide_probs = get_slide_mean(
+        dataset=dataset, tile_probs=tile_probs)
     pred = slide_probs.argmax(axis=1)
 
     return slide_probs, pred
@@ -341,7 +333,7 @@ def get_inference_for_epoch(
         'fnr': fnr,
         'log_loss': log_loss
     }
-    return tile_probs, error
+    return error
 
 
 if __name__ == '__main__':
