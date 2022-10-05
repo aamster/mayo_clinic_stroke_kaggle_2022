@@ -11,11 +11,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
-import torch.nn.functional as F
 import torchvision.models as models
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from stroke_classifier.tile_classifier.inference import tile_inference, \
+    slide_inference
 from stroke_classifier.tile_classifier.mil_dataset import get_dataloader, \
     MILdataset
 
@@ -205,24 +206,6 @@ def main():
                     return
 
 
-def tile_inference(loader: DataLoader, model: nn.Module,
-                   batch_size: int):
-    model.eval()
-    probs = torch.FloatTensor(len(loader.dataset), 2)
-    with torch.no_grad():
-        for i, input in enumerate(tqdm(loader, desc='tile inference',
-                             total=len(loader))):
-            input, _ = input
-            if torch.cuda.is_available():
-                input = input.cuda()
-            output = F.softmax(model(input), dim=1)
-            start_idx = i * batch_size
-            end_idx = i * batch_size + input.size(0)
-            probs[start_idx:end_idx] = output.detach().clone()
-
-    return probs.cpu().numpy()
-
-
 def train(loader, model, criterion, optimizer):
     model.train()
     running_loss = 0.
@@ -261,34 +244,6 @@ def calc_err(
     return fpr, fnr, weighted_log_loss
 
 
-def get_slide_mean(dataset: MILdataset, tile_probs):
-    """Gets mean score over all tiles in a slide for all classes
-    """
-    df = pd.DataFrame(tile_probs, columns=['CE', 'LAA'])
-    df['slide'] = dataset.slide_idxs
-
-    laa_mean = df.groupby('slide')['LAA'].mean()
-    ce_mean = df.groupby('slide')['CE'].mean()
-    res = pd.DataFrame({'CE': ce_mean, 'LAA': laa_mean})
-    res = res.values
-    res /= res.sum(axis=1).reshape(res.shape[0], 1)
-
-    return res
-
-
-def slide_inference(
-        dataset: MILdataset,
-        tile_probs
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Gets classifications for each slide by choosing the max of tile probs
-    for each class"""
-    slide_probs = get_slide_mean(
-        dataset=dataset, tile_probs=tile_probs)
-    pred = slide_probs.argmax(axis=1)
-
-    return slide_probs, pred
-
-
 def calc_weighted_log_loss_kaggle(
         probs: np.ndarray,
         target: np.ndarray,
@@ -325,7 +280,7 @@ def get_inference_for_epoch(
         pred=slide_pred,
         probs=slide_probs,
         true=np.array(
-            [target for _, target in data_loader.dataset.slides]),
+            [target for _, _, target in data_loader.dataset.slides]),
         pos_loss_weight=pos_evaluation_loss_weight
     )
     error = {

@@ -10,7 +10,7 @@ from torch.utils import data
 from torchvision.transforms import transforms
 from imgaug import augmenters as iaa
 
-Slide = namedtuple('Slide', ['slide', 'target'])
+Slide = namedtuple('Slide', ['slide', 'id', 'target'])
 Tile = namedtuple('Tile', ['image_id', 'coords', 'tile_dims', 'slide_idx'])
 
 
@@ -44,7 +44,7 @@ class MILdataset(data.Dataset):
             tiles = self.tiles
 
         image_id, coords, tile_tims, slide_idx = tiles[index]
-        slide, target = self.slides[slide_idx]
+        slide, _, target = self.slides[slide_idx]
 
         img = slide.read_region(
             location=coords,
@@ -88,9 +88,11 @@ class MILdataset(data.Dataset):
                          slide_idx=slide_idx))
             if len(tile_coords) > 0:
                 slides.append(
-                    Slide(slide=TiffSlide(
-                        slide['slide_path']),
-                          target=int(slide['target'] == 'LAA')))
+                    Slide(
+                        slide=TiffSlide(
+                            slide['slide_path']),
+                        id=image_id,
+                        target=int(slide['target'] == 'LAA')))
                 slide_idx += 1
 
         self.slides = np.array(slides, dtype='object')
